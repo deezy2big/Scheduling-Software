@@ -1,0 +1,458 @@
+const express = require('express');
+const router = express.Router();
+const db = require('../db');
+const { requireAuth, requirePermission } = require('../middleware/auth');
+const { logActivity } = require('../utils/logger');
+
+// ============================================
+// COST CALCULATION HELPER
+// ============================================
+
+/**
+ * Calculate cost for a workorder resource
+ * @param {Object} resource - The workorder resource
+ * @param {number} positionHourlyRate - The position's hourly rate
+ * @returns {number} - Calculated cost
+ */
+function calculateResourceCost(resource, positionHourlyRate) {
+    if (resource.cost_type === 'FLAT') {
+        return parseFloat(resource.flat_rate) || 0;
+    }
+
+    // HOURLY with 8-hour minimum
+    const startTime = new Date(resource.start_time);
+    const endTime = new Date(resource.end_time);
+    const hoursWorked = (endTime - startTime) / (1000 * 60 * 60);
+    const billableHours = Math.max(hoursWorked, 8); // 8-hour minimum
+
+    const rate = resource.hourly_rate_override || positionHourlyRate || 0;
+    return billableHours * parseFloat(rate);
+}
+
+// ============================================
+// WORKORDERS
+// ============================================
+
+// GET all workorders (with optional filters)
+router.get('/', requireAuth, requirePermission('view_schedules'), async (req, res) => {
+    try {
+        const { project_id, status, start_date, end_date } = req.query;
+
+        let query = `
+            SELECT w.*,
+                   p.title as project_title,
+                   p.client_name,
+                   json_agg(
+                       json_build_object(
+                           'id', wr.id,
+                           'resource_id', wr.resource_id,
+                           'resource_name', r.name,
+                           'resource_type', r.type,
+                           'position_id', wr.position_id,
+                           'position_name', pos.name,
+                           'position_abbrev', pos.abbreviation,
+                           'start_time', wr.start_time,
+                           'end_time', wr.end_time,
+                           'cost_type', wr.cost_type,
+                           'flat_rate', wr.flat_rate,
+                           'hourly_rate_override', wr.hourly_rate_override,
+                           'position_hourly_rate', pos.hourly_rate,
+                           'notes', wr.notes
+                       ) ORDER BY wr.start_time
+                   ) FILTER (WHERE wr.id IS NOT NULL) as resources
+            FROM workorders w
+            JOIN projects p ON w.project_id = p.id
+            LEFT JOIN workorder_resources wr ON w.id = wr.workorder_id
+            LEFT JOIN resources r ON wr.resource_id = r.id
+            LEFT JOIN positions pos ON wr.position_id = pos.id
+        `;
+
+        const params = [];
+        const conditions = [];
+
+        if (project_id) {
+            params.push(project_id);
+            conditions.push(`w.project_id = $${params.length}`);
+        }
+
+        if (status) {
+            params.push(status);
+            conditions.push(`w.status = $${params.length}`);
+        }
+
+        if (start_date) {
+            params.push(start_date);
+            conditions.push(`w.scheduled_date >= $${params.length}`);
+        }
+
+        if (end_date) {
+            params.push(end_date);
+            conditions.push(`w.scheduled_date <= $${params.length}`);
+        }
+
+        if (conditions.length > 0) {
+            query += ' WHERE ' + conditions.join(' AND ');
+        }
+
+        query += ' GROUP BY w.id, p.title, p.client_name ORDER BY w.scheduled_date, w.start_time';
+
+        const { rows } = await db.query(query, params);
+
+        // Calculate costs for each workorder
+        const workordersWithCosts = rows.map(workorder => {
+            let totalCost = 0;
+            if (workorder.resources) {
+                workorder.resources.forEach(resource => {
+                    resource.calculated_cost = calculateResourceCost(resource, resource.position_hourly_rate);
+                    totalCost += resource.calculated_cost;
+                });
+            }
+            workorder.total_cost = totalCost;
+            return workorder;
+        });
+
+        res.json(workordersWithCosts);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// GET single workorder by ID
+router.get('/:id', requireAuth, requirePermission('view_schedules'), async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const { rows } = await db.query(`
+            SELECT w.*,
+                   p.title as project_title,
+                   p.client_name,
+                   json_agg(
+                       json_build_object(
+                           'id', wr.id,
+                           'resource_id', wr.resource_id,
+                           'resource_name', r.name,
+                           'resource_type', r.type,
+                           'position_id', wr.position_id,
+                           'position_name', pos.name,
+                           'position_abbrev', pos.abbreviation,
+                           'group_name', pg.name,
+                           'group_color', pg.color,
+                           'start_time', wr.start_time,
+                           'end_time', wr.end_time,
+                           'cost_type', wr.cost_type,
+                           'flat_rate', wr.flat_rate,
+                           'hourly_rate_override', wr.hourly_rate_override,
+                           'position_hourly_rate', pos.hourly_rate,
+                           'notes', wr.notes
+                       ) ORDER BY wr.start_time
+                   ) FILTER (WHERE wr.id IS NOT NULL) as resources
+            FROM workorders w
+            JOIN projects p ON w.project_id = p.id
+            LEFT JOIN workorder_resources wr ON w.id = wr.workorder_id
+            LEFT JOIN resources r ON wr.resource_id = r.id
+            LEFT JOIN positions pos ON wr.position_id = pos.id
+            LEFT JOIN position_groups pg ON pos.position_group_id = pg.id
+            WHERE w.id = $1
+            GROUP BY w.id, p.title, p.client_name
+        `, [id]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Workorder not found' });
+        }
+
+        const workorder = rows[0];
+
+        // Calculate costs
+        let totalCost = 0;
+        if (workorder.resources) {
+            workorder.resources.forEach(resource => {
+                resource.calculated_cost = calculateResourceCost(resource, resource.position_hourly_rate);
+                totalCost += resource.calculated_cost;
+            });
+        }
+        workorder.total_cost = totalCost;
+
+        res.json(workorder);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// POST create workorder
+router.post('/', requireAuth, requirePermission('edit_schedules'), async (req, res) => {
+    const {
+        project_id,
+        title,
+        description,
+        status,
+        scheduled_date,
+        start_time,
+        end_time,
+        location,
+        notes,
+        resources
+    } = req.body;
+
+    if (!project_id || !title) {
+        return res.status(400).json({ error: 'project_id and title are required' });
+    }
+
+    const client = await db.pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // Create workorder
+        const { rows: workorderRows } = await client.query(`
+            INSERT INTO workorders (
+                project_id, title, description, status, scheduled_date,
+                start_time, end_time, location, notes, created_by
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            RETURNING *
+        `, [
+            project_id,
+            title,
+            description || null,
+            status || 'PENDING',
+            scheduled_date || null,
+            start_time || null,
+            end_time || null,
+            location || null,
+            notes || null,
+            req.user.id
+        ]);
+
+        const workorder = workorderRows[0];
+
+        // Add resources if provided
+        if (resources && Array.isArray(resources) && resources.length > 0) {
+            for (const resource of resources) {
+                await client.query(`
+                    INSERT INTO workorder_resources (
+                        workorder_id, resource_id, position_id, start_time, end_time,
+                        cost_type, flat_rate, hourly_rate_override, notes
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                `, [
+                    workorder.id,
+                    resource.resource_id,
+                    resource.position_id || null,
+                    resource.start_time,
+                    resource.end_time,
+                    resource.cost_type || 'HOURLY',
+                    resource.flat_rate || null,
+                    resource.hourly_rate_override || null,
+                    resource.notes || null
+                ]);
+            }
+        }
+
+        await client.query('COMMIT');
+
+        await logActivity(
+            req.user.id,
+            'WORKORDER_CREATE',
+            'workorder',
+            workorder.id,
+            { title, project_id, resource_count: resources?.length || 0 },
+            req
+        );
+
+        res.status(201).json(workorder);
+    } catch (err) {
+        await client.query('ROLLBACK');
+
+        if (err.code === '23P01') {
+            return res.status(409).json({
+                error: 'Double booking detected. One or more resources are unavailable for the selected times.'
+            });
+        }
+        if (err.code === '23503') {
+            return res.status(400).json({ error: 'Invalid project, resource, or position ID' });
+        }
+        console.error(err);
+        res.status(500).json({ error: err.message || 'Internal server error' });
+    } finally {
+        client.release();
+    }
+});
+
+// PUT update workorder
+router.put('/:id', requireAuth, requirePermission('edit_schedules'), async (req, res) => {
+    const { id } = req.params;
+    const {
+        title,
+        description,
+        status,
+        scheduled_date,
+        start_time,
+        end_time,
+        location,
+        notes,
+        resources
+    } = req.body;
+
+    const client = await db.pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // Update workorder
+        const { rows } = await client.query(`
+            UPDATE workorders
+            SET title = COALESCE($1, title),
+                description = COALESCE($2, description),
+                status = COALESCE($3, status),
+                scheduled_date = COALESCE($4, scheduled_date),
+                start_time = COALESCE($5, start_time),
+                end_time = COALESCE($6, end_time),
+                location = COALESCE($7, location),
+                notes = COALESCE($8, notes),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $9
+            RETURNING *
+        `, [title, description, status, scheduled_date, start_time, end_time, location, notes, id]);
+
+        if (rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Workorder not found' });
+        }
+
+        // Update resources if provided
+        if (resources && Array.isArray(resources)) {
+            // Remove existing resources
+            await client.query('DELETE FROM workorder_resources WHERE workorder_id = $1', [id]);
+
+            // Add new resources
+            for (const resource of resources) {
+                await client.query(`
+                    INSERT INTO workorder_resources (
+                        workorder_id, resource_id, position_id, start_time, end_time,
+                        cost_type, flat_rate, hourly_rate_override, notes
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                `, [
+                    id,
+                    resource.resource_id,
+                    resource.position_id || null,
+                    resource.start_time,
+                    resource.end_time,
+                    resource.cost_type || 'HOURLY',
+                    resource.flat_rate || null,
+                    resource.hourly_rate_override || null,
+                    resource.notes || null
+                ]);
+            }
+        }
+
+        await client.query('COMMIT');
+
+        await logActivity(
+            req.user.id,
+            'WORKORDER_UPDATE',
+            'workorder',
+            parseInt(id),
+            { changes: { title, status, resource_count: resources?.length } },
+            req
+        );
+
+        res.json(rows[0]);
+    } catch (err) {
+        await client.query('ROLLBACK');
+
+        if (err.code === '23P01') {
+            return res.status(409).json({
+                error: 'Double booking detected. One or more resources are unavailable for the selected times.'
+            });
+        }
+        console.error(err);
+        res.status(500).json({ error: err.message || 'Internal server error' });
+    } finally {
+        client.release();
+    }
+});
+
+// DELETE workorder
+router.delete('/:id', requireAuth, requirePermission('edit_schedules'), async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const { rowCount } = await db.query('DELETE FROM workorders WHERE id = $1', [id]);
+
+        if (rowCount === 0) {
+            return res.status(404).json({ error: 'Workorder not found' });
+        }
+
+        await logActivity(
+            req.user.id,
+            'WORKORDER_DELETE',
+            'workorder',
+            parseInt(id),
+            {},
+            req
+        );
+
+        res.json({ message: 'Workorder deleted successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ============================================
+// WORKORDER RESOURCES (individual resource assignments)
+// ============================================
+
+// POST add resource to workorder
+router.post('/:id/resources', requireAuth, requirePermission('edit_schedules'), async (req, res) => {
+    const { id } = req.params;
+    const { resource_id, position_id, start_time, end_time, cost_type, flat_rate, hourly_rate_override, notes } = req.body;
+
+    if (!resource_id || !start_time || !end_time) {
+        return res.status(400).json({ error: 'resource_id, start_time, and end_time are required' });
+    }
+
+    try {
+        const { rows } = await db.query(`
+            INSERT INTO workorder_resources (
+                workorder_id, resource_id, position_id, start_time, end_time,
+                cost_type, flat_rate, hourly_rate_override, notes
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING *
+        `, [id, resource_id, position_id || null, start_time, end_time,
+            cost_type || 'HOURLY', flat_rate || null, hourly_rate_override || null, notes || null]);
+
+        res.status(201).json(rows[0]);
+    } catch (err) {
+        if (err.code === '23P01') {
+            return res.status(409).json({
+                error: 'Double booking detected. This resource is unavailable for the selected times.'
+            });
+        }
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// DELETE remove resource from workorder
+router.delete('/:id/resources/:resourceAssignmentId', requireAuth, requirePermission('edit_schedules'), async (req, res) => {
+    const { id, resourceAssignmentId } = req.params;
+
+    try {
+        const { rowCount } = await db.query(
+            'DELETE FROM workorder_resources WHERE id = $1 AND workorder_id = $2',
+            [resourceAssignmentId, id]
+        );
+
+        if (rowCount === 0) {
+            return res.status(404).json({ error: 'Resource assignment not found' });
+        }
+
+        res.json({ message: 'Resource removed from workorder' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+module.exports = router;
