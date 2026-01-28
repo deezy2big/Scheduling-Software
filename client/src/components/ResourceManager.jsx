@@ -1017,19 +1017,29 @@ function ResourceModal({ isOpen, onClose, resource, onSave, positions, laborLaws
         </div>
     );
 }
-export function ResourceManager() {
+export function ResourceManager({ initialGroupId }) {
     const [resources, setResources] = useState([]);
     const [positions, setPositions] = useState([]);
     const [laborLaws, setLaborLaws] = useState([]);
     const [resourceGroups, setResourceGroups] = useState([]);
+    const [positionGroups, setPositionGroups] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('ALL');
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedGroupId, setSelectedGroupId] = useState('ALL');
+    const [selectedPositionGroupId, setSelectedPositionGroupId] = useState(initialGroupId || 'ALL');
+    const [selectedResourceGroupId, setSelectedResourceGroupId] = useState('ALL');
     const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
     const [modalOpen, setModalOpen] = useState(false);
     const [groupManagerOpen, setGroupManagerOpen] = useState(false);
     const [editingResource, setEditingResource] = useState(null);
+
+    useEffect(() => {
+        if (initialGroupId) {
+            setSelectedPositionGroupId(initialGroupId);
+        } else {
+            setSelectedPositionGroupId('ALL');
+        }
+    }, [initialGroupId]);
 
     const fetchResources = async () => {
         setLoading(true);
@@ -1045,8 +1055,12 @@ export function ResourceManager() {
 
     const fetchGroups = async () => {
         try {
-            const data = await api.getResourceGroups();
-            setResourceGroups(data);
+            const [resGroups, posGroups] = await Promise.all([
+                api.getResourceGroups(),
+                api.getPositionGroups()
+            ]);
+            setResourceGroups(resGroups);
+            setPositionGroups(posGroups);
         } catch (err) {
             console.error('Failed to fetch groups:', err);
         }
@@ -1094,15 +1108,21 @@ export function ResourceManager() {
             });
         }
 
-        if (selectedGroupId !== 'ALL') {
+        if (selectedResourceGroupId !== 'ALL') {
             filtered = filtered.filter(r => {
-                if (selectedGroupId === 'UNASSIGNED') {
-                    // No groups assigned
+                if (selectedResourceGroupId === 'UNASSIGNED') {
                     return !r.groups || r.groups.length === 0;
                 }
-                // Check if resource belongs to selected group (multi-group support)
-                const groupId = parseInt(selectedGroupId);
+                const groupId = parseInt(selectedResourceGroupId);
                 return r.groups && Array.isArray(r.groups) && r.groups.some(g => g.id === groupId);
+            });
+        }
+
+        if (selectedPositionGroupId !== 'ALL') {
+            filtered = filtered.filter(r => {
+                const groupId = parseInt(selectedPositionGroupId);
+                // Resources have a list of positions. Each position has a group_id (from server).
+                return r.positions && Array.isArray(r.positions) && r.positions.some(p => parseInt(p.group_id) === groupId);
             });
         }
 
@@ -1235,8 +1255,8 @@ export function ResourceManager() {
 
                 <div className="flex items-center gap-2 ml-auto">
                     <select
-                        value={selectedGroupId}
-                        onChange={(e) => setSelectedGroupId(e.target.value)}
+                        value={selectedResourceGroupId}
+                        onChange={(e) => setSelectedResourceGroupId(e.target.value)}
                         className="bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500"
                     >
                         <option value="ALL">All Groups</option>
@@ -1310,17 +1330,35 @@ export function ResourceManager() {
                                     </td>
                                     <td>
                                         <div className="flex flex-wrap gap-1">
-                                            {resource.groups && Array.isArray(resource.groups) && resource.groups.length > 0 ? (
-                                                resource.groups.map(g => (
-                                                    <span
-                                                        key={g.id}
-                                                        className="text-xs px-2 py-0.5 rounded text-slate-200"
-                                                        style={{ backgroundColor: g.color || '#475569' }}
-                                                    >
-                                                        {g.name}
-                                                    </span>
-                                                ))
-                                            ) : (
+                                            {/* Resource Groups */}
+                                            {resource.groups && Array.isArray(resource.groups) && resource.groups.map(g => (
+                                                <span
+                                                    key={`rg- ${g.id}`}
+                                                    className="text-[10px] px-1.5 py-0.5 rounded text-white font-medium"
+                                                    style={{ backgroundColor: g.color || '#475569' }}
+                                                >
+                                                    {g.name}
+                                                </span>
+                                            ))}
+
+                                            {/* Position Groups (Areas) */}
+                                            {resource.type === 'STAFF' && resource.positions && Array.isArray(resource.positions) && (
+                                                [...new Set(resource.positions.map(p => parseInt(p.group_id)))].map(groupId => {
+                                                    const group = positionGroups.find(g => g.id === groupId);
+                                                    if (!group) return null;
+                                                    return (
+                                                        <span
+                                                            key={`pg-${groupId}`}
+                                                            className="text-[10px] px-1.5 py-0.5 rounded text-white font-medium border border-white/20 shadow-sm"
+                                                            style={{ backgroundColor: group.color || '#3b82f6' }}
+                                                        >
+                                                            {group.name}
+                                                        </span>
+                                                    );
+                                                })
+                                            )}
+
+                                            {!((resource.groups && resource.groups.length > 0) || (resource.type === 'STAFF' && resource.positions && resource.positions.length > 0)) && (
                                                 <span className="text-xs text-slate-500">—</span>
                                             )}
                                         </div>

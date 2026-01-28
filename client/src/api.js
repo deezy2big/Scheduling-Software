@@ -453,6 +453,64 @@ export const api = {
         return res.json();
     },
 
+    duplicateWorkorder: async (id) => {
+        const res = await fetch(`${API_BASE}/workorders/${id}/duplicate`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to duplicate workorder');
+        }
+        return res.json();
+    },
+
+    // Search
+    search: async (q) => {
+        const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(q)}`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to search');
+        return res.json();
+    },
+
+    searchFull: async (q) => {
+        const res = await fetch(`${API_BASE}/search/full?q=${encodeURIComponent(q)}`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to fetch full search results');
+        return res.json();
+    },
+
+    searchAdvanced: async (params) => {
+        const queryParams = new URLSearchParams();
+
+        // Build query string from params object
+        Object.entries(params).forEach(([key, value]) => {
+            if (value !== null && value !== undefined && value !== '') {
+                if (Array.isArray(value)) {
+                    value.forEach(v => queryParams.append(key, v));
+                } else {
+                    queryParams.set(key, value);
+                }
+            }
+        });
+
+        const res = await fetch(`${API_BASE}/search/advanced?${queryParams}`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Advanced search failed');
+        return res.json();
+    },
+
+    searchSuggestions: async (q) => {
+        const res = await fetch(`${API_BASE}/search/suggestions?q=${encodeURIComponent(q)}`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to get search suggestions');
+        return res.json();
+    },
+
     // ============================================
     // Resource Positions (Qualifications)
     // ============================================

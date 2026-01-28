@@ -31,6 +31,7 @@ app.use('/api/activity-logs', activityLogRoutes);
 app.use('/api/positions', positionRoutes);
 app.use('/api/workorders', workorderRoutes);
 app.use('/api/laborlaws', laborlawRoutes);
+app.use('/api/search', require('./routes/search'));
 
 
 // Health check

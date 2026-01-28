@@ -399,9 +399,98 @@ router.delete('/:id', requireAuth, requirePermission('edit_schedules'), async (r
     }
 });
 
-// ============================================
-// WORKORDER RESOURCES (individual resource assignments)
-// ============================================
+// POST duplicate workorder
+router.post('/:id/duplicate', requireAuth, requirePermission('edit_schedules'), async (req, res) => {
+    const { id } = req.params;
+    const client = await db.pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // 1. Get original workorder
+        const { rows: originals } = await client.query('SELECT * FROM workorders WHERE id = $1', [id]);
+        if (originals.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Workorder not found' });
+        }
+        const original = originals[0];
+
+        // 2. Create new workorder details (append (Copy) to title)
+        const newTitle = `${original.title} (Copy)`;
+
+        const { rows: newWos } = await client.query(`
+            INSERT INTO workorders (
+                project_id, title, description, status, scheduled_date,
+                start_time, end_time, location, notes, created_by,
+                workorder_number, bid_number, po_number
+            ) VALUES ($1, $2, $3, 'PENDING', $4, $5, $6, $7, $8, $9, NULL, $10, $11)
+            RETURNING *
+        `, [
+            original.project_id,
+            newTitle,
+            original.description,
+            original.scheduled_date,
+            original.start_time,
+            original.end_time,
+            original.location,
+            original.notes,
+            req.user.id,
+            original.bid_number,
+            original.po_number
+        ]);
+        const newWo = newWos[0];
+
+        // 3. Copy resources
+        const { rows: resources } = await client.query('SELECT * FROM workorder_resources WHERE workorder_id = $1', [id]);
+
+        for (const r of resources) {
+            await client.query(`
+                INSERT INTO workorder_resources (
+                    workorder_id, resource_id, position_id, start_time, end_time,
+                    cost_type, flat_rate, hourly_rate_override, notes, 
+                    pay_type_override, work_state_override
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            `, [
+                newWo.id,
+                r.resource_id,
+                r.position_id,
+                r.start_time,
+                r.end_time,
+                r.cost_type,
+                r.flat_rate,
+                r.hourly_rate_override,
+                r.notes,
+                r.pay_type_override,
+                r.work_state_override
+            ]);
+        }
+
+        await client.query('COMMIT');
+
+        await logActivity(
+            req.user.id,
+            'WORKORDER_DUPLICATE',
+            'workorder',
+            newWo.id,
+            { original_id: id, new_title: newTitle },
+            req
+        );
+
+        res.status(201).json(newWo);
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error(err);
+        if (err.code === '23P01') {
+            return res.status(409).json({
+                error: 'Could not copy: Resources are double-booked in the new slot.'
+            });
+        }
+        res.status(500).json({ error: 'Internal server error during duplication' });
+    } finally {
+        client.release();
+    }
+});
 
 // POST add resource to workorder
 router.post('/:id/resources', requireAuth, requirePermission('edit_schedules'), async (req, res) => {

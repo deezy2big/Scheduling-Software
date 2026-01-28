@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./styles/search.css";
 
 /* ===== DARK THEME VARIABLES ===== */
 :root {
@@ -518,6 +519,24 @@ body {
     opacity: 1;
     transform: translateX(0);
   }
+}
+
+/* ===== CUSTOM SCROLLBAR UTILITY ===== */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 /* ===== SCROLLBAR ===== */

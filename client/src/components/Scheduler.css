@@ -1,0 +1,194 @@
+/* Scheduler Layout Fixes */
+
+.timeline-wrapper {
+  overflow-x: auto;
+  position: relative;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+}
+
+.timeline-grid {
+  min-width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header, Group Header, and Resource Row Layout */
+.timeline-header,
+.group-header-row,
+.resource-row {
+  display: flex;
+  width: 100%;
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* Sidebar Columns (Sticky) */
+.timeline-corner,
+.group-header-cell,
+.resource-cell {
+  flex: 0 0 300px;
+  min-width: 300px;
+  /* Sticky positioning to keep sidebar visible while scrolling time */
+  position: sticky;
+  left: 0;
+  z-index: 20;
+  /* Above the scrolling content */
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+
+  /* Flex for internal alignment */
+  display: flex;
+  align-items: center;
+  padding: 0 1rem;
+}
+
+.timeline-corner {
+  justify-content: center;
+  font-weight: 600;
+  color: var(--text-secondary);
+  z-index: 30;
+  /* Corner stays above everything */
+  background: var(--bg-tertiary);
+  /* Match header background */
+}
+
+.group-header-cell {
+  background: var(--bg-tertiary);
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 21;
+  /* Slightly above resource cells */
+}
+
+/* Timeline Columns (Scrollable Area) */
+.timeline-days,
+.group-timeline-cells,
+.resource-timeline {
+  flex: 1;
+  /* Take remaining space */
+  display: flex;
+  min-width: 0;
+  /* Allow shrinking if needed (though contents force width) */
+}
+
+/* Day Cells */
+.timeline-day,
+.group-day-cell,
+.day-cell {
+  flex: 1;
+  min-width: 200px;
+  /* Force a reasonable width for each day */
+  border-right: 1px solid var(--border-color);
+  position: relative;
+}
+
+/* Headers for Days */
+.timeline-day {
+  background: var(--bg-tertiary);
+  text-align: center;
+  padding: 0.5rem;
+  color: var(--text-secondary);
+}
+
+/* Cell Internals */
+.time-grid-lines {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  pointer-events: none;
+}
+
+.time-grid-line {
+  flex: 1;
+  border-right: 1px solid rgba(148, 163, 184, 0.03);
+}
+
+.events-container {
+  position: absolute;
+  inset: 0;
+  padding: 4px 0;
+  pointer-events: none;
+  /* Let clicks pass through to cell */
+}
+
+.event-bar {
+  pointer-events: auto;
+  /* Re-enable clicks on events */
+  position: absolute;
+  height: 24px;
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 0.75rem;
+  color: white;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 10;
+}
+
+/* Resource specific styling */
+.resource-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.day-cell {
+  /* Ensure height for events */
+  min-height: 60px;
+}
+
+/* Compact Mode / Fit to Screen */
+.timeline-grid.compact-mode .timeline-day,
+.timeline-grid.compact-mode .group-day-cell,
+.timeline-grid.compact-mode .day-cell {
+  min-width: 0;
+  overflow: hidden;
+  /* visual clipping if too small */
+}
+
+/* Ensure content inside doesn't force width */
+.timeline-grid.compact-mode .timeline-day .day-header-info,
+.timeline-grid.compact-mode .timeline-day .time-slots {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Hide detailed time slots if they get too squeezed in compact mode */
+.timeline-grid.compact-mode .time-slot-header {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+/* Filter Header Actions */
+.filter-header-actions {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.icon-btn.settings-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0.6;
+  font-size: 1rem;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.2s;
+  color: var(--text-secondary);
+}
+
+.icon-btn.settings-btn:hover {
+  opacity: 1;
+  color: var(--text-primary);
+}

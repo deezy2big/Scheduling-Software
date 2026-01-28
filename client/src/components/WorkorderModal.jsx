@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../api';
 
 const COLOR_OPTIONS = [
@@ -12,6 +12,8 @@ const COLOR_OPTIONS = [
     '#F97316', // Orange
 ];
 
+import DraggableModal from './DraggableModal';
+
 function WorkorderModal({ isOpen, onClose, workorder, projects, resources, positions, onSave, onDelete }) {
     const [formData, setFormData] = useState({
         project_id: '',
@@ -19,8 +21,12 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
         description: '',
         status: 'PENDING',
         scheduled_date: '',
+        start_time: '08:00',
+        end_time: '17:00',
         location: '',
         notes: '',
+        bid_number: '',
+        po_number: '',
     });
 
     const [assignedResources, setAssignedResources] = useState([]);
@@ -28,6 +34,10 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
     const [laborLaws, setLaborLaws] = useState({});
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [isDirty, setIsDirty] = useState(false);
+
+    // Snapshot for dirty checking using refs to avoid effect dependencies issues
+    const initialDataRef = useRef(null);
 
     // Fetch labor laws on mount
     useEffect(() => {
@@ -47,32 +57,80 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
     }, []);
 
     useEffect(() => {
+        let initialForm = {};
+        let initialRes = [];
+
         if (workorder) {
-            setFormData({
+            initialForm = {
                 project_id: workorder.project_id || '',
                 title: workorder.title || '',
                 description: workorder.description || '',
                 status: workorder.status || 'PENDING',
                 scheduled_date: workorder.scheduled_date ? workorder.scheduled_date.split('T')[0] : '',
+                start_time: workorder.start_time ? new Date(workorder.start_time).toTimeString().slice(0, 5) : '08:00',
+                end_time: workorder.end_time ? new Date(workorder.end_time).toTimeString().slice(0, 5) : '17:00',
                 location: workorder.location || '',
                 notes: workorder.notes || '',
-            });
-            setAssignedResources(workorder.resources || []);
+                bid_number: workorder.bid_number || '',
+                po_number: workorder.po_number || '',
+            };
+            initialRes = workorder.resources || [];
         } else {
             // Reset form for new workorder
-            setFormData({
+            initialForm = {
                 project_id: '',
                 title: '',
                 description: '',
                 status: 'PENDING',
                 scheduled_date: new Date().toISOString().split('T')[0],
+                start_time: '08:00',
+                end_time: '17:00',
                 location: '',
                 notes: '',
-            });
-            setAssignedResources([]);
+                bid_number: '',
+                po_number: '',
+            };
+            initialRes = [];
         }
+
+        setFormData(initialForm);
+        setAssignedResources(initialRes);
+        initialDataRef.current = { formData: initialForm, assignedResources: initialRes };
+        setIsDirty(false);
         setError('');
     }, [workorder, isOpen]);
+
+    // Check dirty state
+    useEffect(() => {
+        if (!initialDataRef.current) return;
+        const formChanged = JSON.stringify(formData) !== JSON.stringify(initialDataRef.current.formData);
+        const resChanged = JSON.stringify(assignedResources) !== JSON.stringify(initialDataRef.current.assignedResources);
+        setIsDirty(formChanged || resChanged);
+    }, [formData, assignedResources]);
+
+    // Update resource dates when main scheduled date changes
+    useEffect(() => {
+        if (!formData.scheduled_date || assignedResources.length === 0) return;
+
+        const newResources = assignedResources.map(r => {
+            if (!r.start_time || !r.end_time) return r;
+
+            // Extract existing times
+            const startTime = r.start_time.includes('T') ? r.start_time.split('T')[1] : r.start_time;
+            const endTime = r.end_time.includes('T') ? r.end_time.split('T')[1] : r.end_time;
+
+            return {
+                ...r,
+                start_time: `${formData.scheduled_date}T${startTime}`,
+                end_time: `${formData.scheduled_date}T${endTime}`
+            };
+        });
+
+        // Only update if there are changes to avoid loop
+        if (JSON.stringify(newResources) !== JSON.stringify(assignedResources)) {
+            setAssignedResources(newResources);
+        }
+    }, [formData.scheduled_date]);
 
     // Fetch positions for a specific resource
     const fetchResourcePositions = useCallback(async (resourceId) => {
@@ -88,10 +146,26 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
         }
     }, [resourcePositions]);
 
+    const handleDuplicate = async () => {
+        if (!workorder?.id) return;
+        if (!window.confirm('Duplicate this workorder?')) return;
+
+        setLoading(true);
+        try {
+            await api.duplicateWorkorder(workorder.id);
+            onSave(); // Refresh list
+            onClose();
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleAddResource = () => {
         const defaultDate = formData.scheduled_date || new Date().toISOString().split('T')[0];
-        const defaultStart = `${defaultDate}T08:00`;
-        const defaultEnd = `${defaultDate}T17:00`;
+        const defaultStart = `${defaultDate}T${formData.start_time || '08:00'}`;
+        const defaultEnd = `${defaultDate}T${formData.end_time || '17:00'}`;
 
         setAssignedResources([
             ...assignedResources,
@@ -108,9 +182,35 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
         ]);
     };
 
+    const syncAllResourcesTimes = () => {
+        const datePart = formData.scheduled_date || new Date().toISOString().split('T')[0];
+        // Ensure time is in 2-digit format if needed
+        const newStart = `${datePart}T${formData.start_time || '08:00'}`;
+        const newEnd = `${datePart}T${formData.end_time || '17:00'}`;
+
+        setAssignedResources(prev => prev.map(r => ({
+            ...r,
+            start_time: newStart,
+            end_time: newEnd
+        })));
+    };
+
     const handleRemoveResource = (index) => {
         const updated = [...assignedResources];
         updated.splice(index, 1);
+        setAssignedResources(updated);
+    };
+
+    const handleResourceTimeChange = (index, field, timeValue) => {
+        // inputs are now just HH:mm
+        const updated = [...assignedResources];
+        const datePart = formData.scheduled_date || new Date().toISOString().split('T')[0];
+
+        // Ensure full ISO format for backend consistency
+        updated[index] = {
+            ...updated[index],
+            [field]: `${datePart}T${timeValue}`
+        };
         setAssignedResources(updated);
     };
 
@@ -251,6 +351,9 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
             const payload = {
                 ...formData,
                 project_id: parseInt(formData.project_id),
+                // Format main workorder times as full timestamps for the database
+                start_time: formData.scheduled_date && formData.start_time ? `${formData.scheduled_date}T${formData.start_time}` : null,
+                end_time: formData.scheduled_date && formData.end_time ? `${formData.scheduled_date}T${formData.end_time}` : null,
                 resources: resourcesData,
             };
 
@@ -260,6 +363,7 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
                 await api.createWorkorder(payload);
             }
 
+            setIsDirty(false);
             onSave();
             onClose();
         } catch (err) {
@@ -282,8 +386,6 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
             }
         }
     };
-
-    if (!isOpen) return null;
 
     // Filter staff resources only
     const staffResources = resources.filter(r => r.type === 'STAFF');
@@ -319,256 +421,532 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
     };
 
     return (
-        <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-content workorder-modal" onClick={e => e.stopPropagation()}>
-                <button className="modal-close" onClick={onClose}>×</button>
+        <DraggableModal
+            isOpen={isOpen}
+            onClose={onClose}
+            title={workorder?.id ? 'Edit Workorder' : 'New Workorder'}
+            hasUnsavedChanges={isDirty}
+            initialSize={{ width: 850, height: 700 }}
+            className="workorder-modal-wrapper"
+        >
 
-                <h2>{workorder?.id ? 'Edit Workorder' : 'New Workorder'}</h2>
+            {error && <div className="error-message">{error}</div>}
 
-                {error && <div className="error-message">{error}</div>}
-
-                <form onSubmit={handleSubmit}>
-                    {/* Project Selection */}
-                    <div className="form-row">
-                        <div className="form-group">
-                            <label>Project *</label>
-                            <select
-                                value={formData.project_id}
-                                onChange={(e) => setFormData({ ...formData, project_id: e.target.value })}
-                                required
-                            >
-                                <option value="">Select Project...</option>
-                                {projects.map(project => (
-                                    <option key={project.id} value={project.id}>
-                                        {project.title} {project.client_name ? `- ${project.client_name}` : ''}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="form-group">
-                            <label>Status</label>
-                            <select
-                                value={formData.status}
-                                onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                            >
-                                <option value="PENDING">Pending</option>
-                                <option value="IN_PROGRESS">In Progress</option>
-                                <option value="COMPLETED">Completed</option>
-                                <option value="CANCELLED">Cancelled</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    {/* Title and Date */}
-                    <div className="form-row">
-                        <div className="form-group" style={{ flex: 2 }}>
-                            <label>Workorder Title *</label>
+            <form onSubmit={handleSubmit}>
+                {/* Project Selection */}
+                <div className="header-compact-grid">
+                    <div className="compact-row">
+                        <div className="field-group title-field">
+                            <label>Title</label>
                             <input
                                 type="text"
                                 value={formData.title}
                                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                                placeholder="e.g., Day 1 - Setup"
+                                placeholder="Workorder Title"
                                 required
+                                className="input-compact"
                             />
                         </div>
-                        <div className="form-group">
-                            <label>Scheduled Date</label>
+                        <div className="field-group project-field">
+                            <label>Project</label>
+                            <select
+                                value={formData.project_id}
+                                onChange={(e) => setFormData({ ...formData, project_id: e.target.value })}
+                                required
+                                className="input-compact"
+                            >
+                                <option value="">Select Project...</option>
+                                {projects.map(project => (
+                                    <option key={project.id} value={project.id}>
+                                        {project.title}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="field-group status-field">
+                            <label>Status</label>
+                            <select
+                                value={formData.status}
+                                onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                                className="input-compact"
+                            >
+                                <option value="PENDING">Pending</option>
+                                <option value="IN_PROGRESS">In Progress</option>
+                                <option value="COMPLETED">Completed</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div className="compact-row">
+                        <div className="field-group">
+                            <label>Date</label>
                             <input
                                 type="date"
                                 value={formData.scheduled_date}
                                 onChange={(e) => setFormData({ ...formData, scheduled_date: e.target.value })}
+                                className="input-compact"
+                            />
+                        </div>
+                        <div className="field-group time-field">
+                            <label>Time</label>
+                            <div className="time-range-compact">
+                                <input
+                                    type="time"
+                                    value={formData.start_time}
+                                    onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
+                                    className="input-compact"
+                                />
+                                <span>-</span>
+                                <input
+                                    type="time"
+                                    value={formData.end_time}
+                                    onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
+                                    className="input-compact"
+                                />
+                            </div>
+                        </div>
+                        <div className="field-group location-field">
+                            <label>Location</label>
+                            <input
+                                type="text"
+                                value={formData.location}
+                                onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                                placeholder="Location"
+                                className="input-compact"
                             />
                         </div>
                     </div>
-
-                    {/* Location */}
-                    <div className="form-group">
-                        <label>Location</label>
-                        <input
-                            type="text"
-                            value={formData.location}
-                            onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                            placeholder="e.g., Studio A, 123 Main St"
-                        />
+                    <div className="compact-row">
+                        <div className="field-group">
+                            <label>Bid #</label>
+                            <input
+                                type="text"
+                                value={formData.bid_number}
+                                onChange={(e) => setFormData({ ...formData, bid_number: e.target.value })}
+                                placeholder="Optional Bid #"
+                                className="input-compact"
+                            />
+                        </div>
+                        <div className="field-group">
+                            <label>PO #</label>
+                            <input
+                                type="text"
+                                value={formData.po_number}
+                                onChange={(e) => setFormData({ ...formData, po_number: e.target.value })}
+                                placeholder="Optional PO #"
+                                className="input-compact"
+                            />
+                        </div>
+                        <div className="field-group" style={{ flex: 2 }}></div>
                     </div>
+                </div>
 
-                    {/* Resources Section */}
-                    <div className="resources-section">
-                        <div className="section-header">
-                            <h3>Resources</h3>
-                            <button type="button" className="btn-add" onClick={handleAddResource}>
+
+                {/* Resources Section */}
+                <div className="resources-section">
+                    <div className="section-header">
+                        <h3>Resources</h3>
+                        <div className="section-actions">
+                            <button type="button" className="btn-secondary-small" onClick={syncAllResourcesTimes} title="Set all resources to workorder time">
+                                ↺ Sync Times
+                            </button>
+                            <button type="button" className="btn-primary-small" onClick={handleAddResource}>
                                 + Add Resource
                             </button>
                         </div>
+                    </div>
 
+                    <div className="resource-list">
                         {assignedResources.length === 0 ? (
-                            <p className="no-resources">No resources assigned yet. Click "Add Resource" to assign staff or equipment.</p>
+                            <div className="resource-list-empty" onClick={handleAddResource}>
+                                <p>No resources assigned yet. Click "+ Add Resource" or click here to start.</p>
+                            </div>
                         ) : (
-                            <div className="resource-list">
-                                {assignedResources.map((resource, index) => {
-                                    const availablePositions = getAvailablePositions(resource.resource_id);
-                                    const costInfo = calculateResourceCost(resource);
+                            assignedResources.map((resource, index) => {
+                                const availablePositions = getAvailablePositions(resource.resource_id);
+                                const costInfo = calculateResourceCost(resource);
 
-                                    return (
-                                        <div key={index} className="resource-row">
-                                            <div className="resource-main">
+                                return (
+                                    <React.Fragment key={index}>
+                                        <div className="resource-row-compact">
+                                            <div className="col-resource">
                                                 <select
                                                     value={resource.resource_id}
                                                     onChange={(e) => handleResourceChange(index, 'resource_id', e.target.value)}
-                                                    className="resource-select"
                                                 >
-                                                    <option value="">Select Resource...</option>
+                                                    <option value="">Resource...</option>
                                                     {staffResources.map(r => (
                                                         <option key={r.id} value={r.id}>{r.name}</option>
                                                     ))}
                                                 </select>
-
-                                                {getPayTypeBadge(resource)}
-
+                                            </div>
+                                            <div className="col-position">
                                                 <select
                                                     value={resource.position_id}
                                                     onChange={(e) => handleResourceChange(index, 'position_id', e.target.value)}
-                                                    className="position-select"
                                                     disabled={!resource.resource_id}
                                                 >
                                                     <option value="">Position...</option>
                                                     {availablePositions.map(p => (
                                                         <option key={p.id} value={p.id}>
-                                                            {p.abbreviation || p.name} (${parseFloat(p.hourly_rate || 0).toFixed(2)}/hr)
-                                                            {p.is_custom_rate ? ' ★' : ''}
+                                                            {p.abbreviation || p.name}
                                                         </option>
                                                     ))}
                                                 </select>
-
-                                                <input
-                                                    type="datetime-local"
-                                                    value={resource.start_time}
-                                                    onChange={(e) => handleResourceChange(index, 'start_time', e.target.value)}
-                                                    className="time-input"
-                                                />
-                                                <span className="time-separator">to</span>
-                                                <input
-                                                    type="datetime-local"
-                                                    value={resource.end_time}
-                                                    onChange={(e) => handleResourceChange(index, 'end_time', e.target.value)}
-                                                    className="time-input"
-                                                />
-
-                                                <button
-                                                    type="button"
-                                                    className="btn-remove"
-                                                    onClick={() => handleRemoveResource(index)}
-                                                >
-                                                    ×
-                                                </button>
                                             </div>
-
-                                            <div className="resource-cost-row">
+                                            <div className="col-time">
+                                                <input
+                                                    type="time"
+                                                    value={resource.start_time ? resource.start_time.split('T')[1]?.substring(0, 5) : ''}
+                                                    onChange={(e) => handleResourceTimeChange(index, 'start_time', e.target.value)}
+                                                />
+                                                <span>-</span>
+                                                <input
+                                                    type="time"
+                                                    value={resource.end_time ? resource.end_time.split('T')[1]?.substring(0, 5) : ''}
+                                                    onChange={(e) => handleResourceTimeChange(index, 'end_time', e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="col-pay">
                                                 <select
-                                                    value={resource.cost_type}
-                                                    onChange={(e) => handleResourceChange(index, 'cost_type', e.target.value)}
-                                                    className="cost-type-select"
+                                                    value={resource.cost_type === 'FLAT' ? 'FLAT' : (resource.pay_type_override || 'HOURLY')}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        if (val === 'FLAT') {
+                                                            handleResourceChange(index, 'cost_type', 'FLAT');
+                                                        } else {
+                                                            // Clear flat_rate when switching away from FLAT
+                                                            const updated = [...assignedResources];
+                                                            updated[index] = {
+                                                                ...updated[index],
+                                                                cost_type: 'HOURLY',
+                                                                flat_rate: '',
+                                                                pay_type_override: val === 'HOURLY' ? '' : val
+                                                            };
+                                                            setAssignedResources(updated);
+                                                        }
+                                                    }}
                                                 >
                                                     <option value="HOURLY">Hourly</option>
-                                                    <option value="FLAT">Flat Rate</option>
+                                                    <option value="GUARANTEE_8">Guarantee 8</option>
+                                                    <option value="GUARANTEE_10">Guarantee 10</option>
+                                                    <option value="FLAT">Flat</option>
                                                 </select>
-
-                                                {resource.cost_type === 'FLAT' && (
+                                            </div>
+                                            <div className="col-cost">
+                                                {resource.cost_type === 'FLAT' ? (
                                                     <input
                                                         type="number"
                                                         value={resource.flat_rate}
                                                         onChange={(e) => handleResourceChange(index, 'flat_rate', e.target.value)}
-                                                        placeholder="Flat rate $"
-                                                        className="flat-rate-input"
-                                                        step="0.01"
-                                                        min="0"
+                                                        placeholder="$"
+                                                        className="input-flat"
                                                     />
-                                                )}
-
-                                                {resource.cost_type === 'HOURLY' && (
-                                                    <select
-                                                        value={resource.pay_type_override || ''}
-                                                        onChange={(e) => handleResourceChange(index, 'pay_type_override', e.target.value)}
-                                                        className="pay-type-select"
-                                                        title="Override resource's default pay type"
-                                                    >
-                                                        <option value="">Use Default</option>
-                                                        <option value="HOURLY">Hourly</option>
-                                                        <option value="GUARANTEE_8">8hr Guarantee</option>
-                                                        <option value="GUARANTEE_10">10hr Guarantee</option>
-                                                    </select>
-                                                )}
-
-                                                <div className="cost-breakdown" title={costInfo.breakdown}>
-                                                    <span className="calculated-cost">
-                                                        ${costInfo.total.toFixed(2)}
+                                                ) : (
+                                                    <span className="cost-display" title={costInfo.breakdown}>
+                                                        ${costInfo.total.toFixed(0)}
+                                                        {costInfo.ot_hours > 0 && <small className="ot-marker">OT</small>}
                                                     </span>
-                                                    {costInfo.ot_hours > 0 && (
-                                                        <span className="ot-badge">+OT</span>
-                                                    )}
-                                                    {costInfo.dt_hours > 0 && (
-                                                        <span className="dt-badge">+DT</span>
-                                                    )}
-                                                </div>
+                                                )}
                                             </div>
-
-                                            {costInfo.breakdown && resource.cost_type === 'HOURLY' && (
-                                                <div className="cost-detail-row">
-                                                    <small className="cost-breakdown-text">{costInfo.breakdown}</small>
-                                                </div>
-                                            )}
+                                            <div className="col-actions">
+                                                <button type="button" className="btn-icon-remove" onClick={() => handleRemoveResource(index)}>×</button>
+                                            </div>
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-
-                        {assignedResources.length > 0 && (
-                            <div className="total-cost">
-                                <strong>Total Estimated Cost:</strong> ${getTotalCost().toFixed(2)}
-                            </div>
+                                    </React.Fragment>
+                                );
+                            })
                         )}
                     </div>
 
-                    {/* Notes */}
-                    <div className="form-group">
-                        <label>Notes</label>
-                        <textarea
-                            value={formData.notes}
-                            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                            placeholder="Optional notes..."
-                            rows={3}
-                        />
-                    </div>
+                    {assignedResources.length > 0 && (
+                        <div className="total-cost">
+                            <strong>Total Estimated Cost:</strong> ${getTotalCost().toFixed(2)}
+                        </div>
+                    )}
+                </div>
 
-                    {/* Actions */}
-                    <div className="modal-actions">
-                        {workorder?.id && (
-                            <button type="button" className="btn-delete" onClick={handleDelete}>
+                {/* Notes */}
+                <div className="form-group">
+                    <label>Notes</label>
+                    <textarea
+                        value={formData.notes}
+                        onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                        placeholder="Optional notes..."
+                        rows={3}
+                    />
+                </div>
+
+                {/* Actions */}
+                <div className="modal-actions">
+                    {workorder?.id && (
+                        <div style={{ marginRight: 'auto', display: 'flex', gap: '10px' }}>
+                            <button type="button" className="btn-delete" onClick={handleDelete} style={{ marginRight: 0 }}>
                                 Delete
                             </button>
-                        )}
-                        <button type="button" className="btn-cancel" onClick={onClose}>
-                            Cancel
-                        </button>
-                        <button type="submit" className="btn-submit" disabled={loading}>
-                            {loading ? 'Saving...' : (workorder?.id ? 'Update Workorder' : 'Create Workorder')}
-                        </button>
-                    </div>
-                </form>
-            </div>
+                            <button type="button" className="btn-duplicate" onClick={handleDuplicate}>
+                                Duplicate
+                            </button>
+                        </div>
+                    )}
+                    <button type="button" className="btn-cancel" onClick={onClose}>
+                        Cancel
+                    </button>
+                    <button type="submit" className="btn-submit" disabled={loading}>
+                        {loading ? 'Saving...' : (workorder?.id ? 'Update Workorder' : 'Create Workorder')}
+                    </button>
+                </div>
+            </form >
 
             <style>{`
-                .workorder-modal {
-                    max-width: 900px;
-                    max-height: 90vh;
-                    overflow-y: auto;
+                .workorder-modal-wrapper h2 {
+                    flex-shrink: 0;
+                    margin-top: 0;
                 }
 
-                .form-row {
+                /* --- GLOBAL FORM STYLES --- */
+                
+                label {
+                    display: block;
+                    font-size: 0.75rem;
+                    font-weight: 600;
+                    text-transform: uppercase;
+                    letter-spacing: 0.05em;
+                    color: #94a3b8;
+                    margin-bottom: 0.5rem;
+                }
+
+                input, select, textarea {
+                    width: 100%;
+                    background: #0f172a; /* Slate 900 */
+                    border: 1px solid #334155; /* Slate 700 */
+                    border-radius: 6px;
+                    padding: 0.75rem 1rem;
+                    color: #f8fafc; /* Slate 50 */
+                    font-size: 0.9rem;
+                    transition: border-color 0.2s, box-shadow 0.2s;
+                }
+
+                input::placeholder, textarea::placeholder {
+                    color: #475569;
+                }
+
+                input:focus, select:focus, textarea:focus {
+                    outline: none;
+                    border-color: #3b82f6; /* Blue 500 */
+                    box-shadow: 0 0 0 1px #3b82f6;
+                }
+                
+                /* Specific overrides for the header grid content */
+                .header-grid input, .header-grid select {
+                     background: #0f172a;
+                     border-color: #334155;
+                }
+
+                .workorder-modal-wrapper form {
+                    flex: 1;
                     display: flex;
-                    gap: 1rem;
-                    margin-bottom: 1rem;
+                    flex-direction: column;
+                    overflow: hidden;
+                    gap: 1.5rem; /* Main spacing between sections */
+                }
+
+                .header-compact-grid {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.5rem;
+                    background: #1e293b;
+                    padding: 0.75rem;
+                    border-radius: 8px;
+                    border: 1px solid #334155;
+                    margin-bottom: 0.5rem;
+                }
+                .compact-row {
+                    display: flex;
+                    gap: 0.75rem;
+                }
+                .field-group { flex: 1; min-width: 0; }
+                .title-field { flex: 2; }
+                .project-field { flex: 1.5; }
+                .status-field { flex: 1; max-width: 140px; }
+                .time-field { flex: 1.5; }
+                .location-field { flex: 1.5; }
+                
+                .compact-row label {
+                    font-size: 0.65rem;
+                    margin-bottom: 0.25rem;
+                }
+                .input-compact {
+                    padding: 0.4rem 0.5rem;
+                    font-size: 0.85rem;
+                    height: 32px;
+                }
+                .time-range-compact {
+                    display: flex;
+                    gap: 0.25rem;
+                    align-items: center;
+                }
+                
+                /* Resource List Redesign */
+                .resources-section {
+                    padding: 0;
+                    border-radius: 0;
+                    background: transparent;
+                    border: none;
+                    gap: 0.5rem;
+                }
+                .section-header {
+                    margin-bottom: 0.5rem;
+                    padding: 0 0.5rem;
+                    border: none;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                
+                .section-actions {
+                    display: flex;
+                    gap: 0.5rem;
+                    align-items: center;
+                }
+
+                .btn-primary-small {
+                    background: #3b82f6;
+                    color: white;
+                    border: none;
+                    padding: 0.3rem 0.75rem;
+                    border-radius: 4px;
+                    font-size: 0.75rem;
+                    font-weight: 600;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.25rem;
+                    transition: background 0.2s;
+                }
+                .btn-primary-small:hover { background: #2563eb; }
+
+                .btn-secondary-small {
+                    background: transparent;
+                    color: #94a3b8;
+                    border: 1px solid #475569;
+                    padding: 0.3rem 0.75rem;
+                    border-radius: 4px;
+                    font-size: 0.75rem;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.25rem;
+                }
+                .btn-secondary-small:hover { border-color: #cbd5e1; color: #f1f5f9; }
+                .resource-list {
+                    background: #0f172a;
+                    border: 1px solid #334155;
+                    border-radius: 8px;
+                    padding: 0;
+                    overflow-x: auto; /* Enable horizontal scroll if window is too small for grid */
+                    min-height: 100px;
+                    display: flex;
+                    flex-direction: column;
+                }
+
+                .resource-list-empty {
+                    flex: 1;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: #64748b;
+                    font-size: 0.9rem;
+                    cursor: pointer;
+                    transition: background 0.2s;
+                    min-height: 100px;
+                }
+                .resource-list-empty:hover {
+                    background: rgba(59, 130, 246, 0.05);
+                    color: #94a3b8;
+                }
+                
+                .resource-row-compact {
+                    display: grid;
+                    grid-template-columns: 200px 140px 180px 100px 90px 40px;
+                    gap: 0.75rem;
+                    align-items: center;
+                    padding: 0.6rem 0.75rem;
+                    background: #1e293b;
+                    border-bottom: 1px solid #334155;
+                    font-size: 0.85rem;
+                    min-width: 750px; /* Enforce minimum internal width for the grid */
+                }
+                .resource-row-compact:last-child { border-bottom: none; }
+                
+                .resource-row-compact select,
+                .resource-row-compact input[type="time"],
+                .resource-row-compact input[type="number"] {
+                    padding: 0.4rem 0.5rem;
+                    height: 32px;
+                    font-size: 0.8rem;
+                    background: #0f172a;
+                    border: 1px solid #475569;
+                    border-radius: 4px;
+                    color: #f8fafc;
+                }
+                
+                .col-time {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.25rem;
+                }
+                .col-time input { 
+                    flex: 1;
+                    min-width: 0;
+                    text-align: center; 
+                }
+                .col-time span {
+                    color: #64748b;
+                    flex-shrink: 0;
+                }
+                
+                .col-cost {
+                     text-align: right;
+                     font-weight: 600;
+                     color: #4ade80;
+                     display: flex;
+                     align-items: center;
+                     justify-content: flex-end;
+                }
+                
+                .cost-display {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 0.25rem;
+                }
+                
+                .btn-icon-remove {
+                    width: 24px;
+                    height: 24px;
+                    line-height: 1;
+                    padding: 0;
+                    border: none;
+                    background: transparent;
+                    color: #ef4444;
+                    cursor: pointer;
+                    font-size: 1.2rem;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .btn-icon-remove:hover {
+                    background: rgba(239, 68, 68, 0.1);
+                    border-radius: 4px;
+                }
+                
+                .ot-marker {
+                    background: #f59e0b;
+                    color: #000;
+                    font-size: 0.6rem;
+                    padding: 0 2px;
+                    border-radius: 2px;
+                    margin-left: 4px;
                 }
 
                 .form-group {
@@ -601,79 +979,6 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
                     border-color: #3b82f6;
                 }
 
-                .resources-section {
-                    background: rgba(15, 23, 42, 0.5);
-                    border-radius: 12px;
-                    padding: 1rem;
-                    margin: 1.5rem 0;
-                }
-
-                .section-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 1rem;
-                }
-
-                .section-header h3 {
-                    margin: 0;
-                    font-size: 1rem;
-                    color: #e2e8f0;
-                }
-
-                .btn-add {
-                    background: #22c55e;
-                    color: white;
-                    border: none;
-                    padding: 0.5rem 1rem;
-                    border-radius: 6px;
-                    cursor: pointer;
-                    font-size: 0.875rem;
-                }
-
-                .btn-add:hover {
-                    background: #16a34a;
-                }
-
-                .no-resources {
-                    color: #64748b;
-                    text-align: center;
-                    padding: 2rem;
-                    font-style: italic;
-                }
-
-                .resource-list {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 0.75rem;
-                }
-
-                .resource-row {
-                    background: rgba(30, 41, 59, 0.6);
-                    border-radius: 8px;
-                    padding: 0.75rem;
-                }
-
-                .resource-main {
-                    display: flex;
-                    gap: 0.5rem;
-                    align-items: center;
-                    flex-wrap: wrap;
-                }
-
-                .resource-select {
-                    min-width: 150px;
-                    flex: 1;
-                }
-
-                .position-select {
-                    min-width: 180px;
-                }
-
-                .time-input {
-                    width: 160px;
-                }
-
                 .time-separator {
                     color: #64748b;
                     font-size: 0.875rem;
@@ -691,14 +996,6 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                }
-
-                .resource-cost-row {
-                    display: flex;
-                    gap: 0.5rem;
-                    align-items: center;
-                    margin-top: 0.5rem;
-                    padding-left: 0.5rem;
                 }
 
                 .cost-type-select {
@@ -789,6 +1086,15 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
                     margin-right: auto;
                 }
 
+                .btn-duplicate {
+                    background: transparent;
+                    color: #3b82f6;
+                    border: 1px solid #3b82f6;
+                    padding: 0.75rem 1.5rem;
+                    border-radius: 8px;
+                    cursor: pointer;
+                }
+
                 .btn-cancel {
                     background: transparent;
                     color: #94a3b8;
@@ -826,7 +1132,7 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
                     margin-bottom: 1rem;
                 }
             `}</style>
-        </div>
+        </DraggableModal >
     );
 }
 

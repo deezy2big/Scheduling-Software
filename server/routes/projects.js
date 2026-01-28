@@ -34,7 +34,15 @@ router.get('/', requireAuth, requirePermission('view_schedules'), async (req, re
         let query = `
             SELECT p.*,
                    COUNT(DISTINCT w.id) as workorder_count,
-                   u.full_name as created_by_name
+                   u.full_name as created_by_name,
+                   json_agg(
+                       json_build_object(
+                           'id', w.id,
+                           'title', w.title,
+                           'status', w.status,
+                           'scheduled_date', w.scheduled_date
+                       ) ORDER BY w.scheduled_date NULLS LAST, w.start_time NULLS LAST
+                   ) FILTER (WHERE w.id IS NOT NULL) as workorders
             FROM projects p
             LEFT JOIN workorders w ON p.id = w.project_id
             LEFT JOIN users u ON p.created_by = u.id
@@ -183,7 +191,7 @@ router.get('/:id/workorders', requireAuth, requirePermission('view_schedules'), 
 // POST Create a Project (container only, no resources)
 router.post('/', requireAuth, requirePermission('edit_schedules'), async (req, res) => {
     const {
-        title, notes, color, client_name, department,
+        title, notes, color, client_name, department, job_code,
         priority, status, assigned_user_id
     } = req.body;
 
@@ -194,9 +202,9 @@ router.post('/', requireAuth, requirePermission('edit_schedules'), async (req, r
     try {
         const { rows } = await db.query(`
             INSERT INTO projects (
-                title, project_name, notes, color, client_name, department,
+                title, project_name, notes, color, client_name, department, job_code,
                 priority, status, assigned_user_id, created_by
-            ) VALUES ($1, $1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ) VALUES ($1, $1, $2, $3, $4, $5, $10, $6, $7, $8, $9)
             RETURNING *
         `, [
             title,
@@ -207,7 +215,8 @@ router.post('/', requireAuth, requirePermission('edit_schedules'), async (req, r
             priority || 'NORMAL',
             status || 'PENDING',
             assigned_user_id || null,
-            req.user.id
+            req.user.id,
+            job_code || null
         ]);
 
         await logActivity(
@@ -230,7 +239,7 @@ router.post('/', requireAuth, requirePermission('edit_schedules'), async (req, r
 router.put('/:id', requireAuth, requirePermission('edit_schedules'), async (req, res) => {
     const { id } = req.params;
     const {
-        title, notes, color, client_name, department,
+        title, notes, color, client_name, department, job_code,
         priority, status, assigned_user_id
     } = req.body;
 
@@ -243,13 +252,14 @@ router.put('/:id', requireAuth, requirePermission('edit_schedules'), async (req,
                 color = COALESCE($3, color),
                 client_name = COALESCE($4, client_name),
                 department = COALESCE($5, department),
+                job_code = COALESCE($10, job_code),
                 priority = COALESCE($6, priority),
                 status = COALESCE($7, status),
                 assigned_user_id = COALESCE($8, assigned_user_id),
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $9
             RETURNING *
-        `, [title, notes, color, client_name, department, priority, status, assigned_user_id, id]);
+        `, [title, notes, color, client_name, department, priority, status, assigned_user_id, id, job_code]);
 
         if (rows.length === 0) {
             return res.status(404).json({ error: 'Project not found' });
