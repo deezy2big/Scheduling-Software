@@ -13,8 +13,10 @@ const COLOR_OPTIONS = [
 ];
 
 import DraggableModal from './DraggableModal';
+import ResourcePickerModal from './ResourcePickerModal';
+import ServicePickerModal from './ServicePickerModal';
 
-function WorkorderModal({ isOpen, onClose, workorder, projects, resources, positions, onSave, onDelete }) {
+function WorkorderModal({ isOpen, onClose, workorder, initialSlot, projects, resources, positions, onSave, onDelete }) {
     const [formData, setFormData] = useState({
         project_id: '',
         title: '',
@@ -35,6 +37,9 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [isDirty, setIsDirty] = useState(false);
+    const [isResourcePickerOpen, setIsResourcePickerOpen] = useState(false);
+    const [isServicePickerOpen, setIsServicePickerOpen] = useState(false);
+    const [services, setServices] = useState([]);
 
     // Snapshot for dirty checking using refs to avoid effect dependencies issues
     const initialDataRef = useRef(null);
@@ -56,6 +61,19 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
         fetchLaborLaws();
     }, []);
 
+    // Fetch services on mount
+    useEffect(() => {
+        const fetchServices = async () => {
+            try {
+                const data = await api.getServices({ is_active: 'true' });
+                setServices(data);
+            } catch (err) {
+                console.error('Failed to fetch services:', err);
+            }
+        };
+        fetchServices();
+    }, []);
+
     useEffect(() => {
         let initialForm = {};
         let initialRes = [];
@@ -72,25 +90,57 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
                 location: workorder.location || '',
                 notes: workorder.notes || '',
                 bid_number: workorder.bid_number || '',
+                bid_number: workorder.bid_number || '',
                 po_number: workorder.po_number || '',
+                bid_number: workorder.bid_number || '',
+                po_number: workorder.po_number || '',
+                job_type: workorder.job_type || 'REMOTE',
+                location_category: workorder.location_category || '',
+                location_region: workorder.location_region || '',
             };
             initialRes = workorder.resources || [];
         } else {
             // Reset form for new workorder
+            // If initialSlot is provided (from click-and-drag), use those values
+            const defaultDate = initialSlot?.start ? new Date(initialSlot.start).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+            const defaultStartTime = initialSlot?.start ? new Date(initialSlot.start).toTimeString().slice(0, 5) : '08:00';
+            const defaultEndTime = initialSlot?.end ? new Date(initialSlot.end).toTimeString().slice(0, 5) : '17:00';
+
             initialForm = {
                 project_id: '',
                 title: '',
                 description: '',
                 status: 'PENDING',
-                scheduled_date: new Date().toISOString().split('T')[0],
-                start_time: '08:00',
-                end_time: '17:00',
+                scheduled_date: defaultDate,
+                start_time: defaultStartTime,
+                end_time: defaultEndTime,
                 location: '',
                 notes: '',
                 bid_number: '',
+                bid_number: '',
                 po_number: '',
+                bid_number: '',
+                po_number: '',
+                job_type: 'REMOTE',
+                location_category: '',
+                location_region: '',
             };
-            initialRes = [];
+
+            // If initialSlot has a resourceId, pre-assign that resource
+            if (initialSlot?.resourceId) {
+                const selectedResource = resources?.find(r => r.id === initialSlot.resourceId);
+                if (selectedResource) {
+                    initialRes = [{
+                        resource_id: selectedResource.id,
+                        name: selectedResource.name,
+                        position_id: null,
+                        position_name: '',
+                        position_abbrev: '',
+                    }];
+                }
+            } else {
+                initialRes = [];
+            }
         }
 
         setFormData(initialForm);
@@ -98,7 +148,7 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
         initialDataRef.current = { formData: initialForm, assignedResources: initialRes };
         setIsDirty(false);
         setError('');
-    }, [workorder, isOpen]);
+    }, [workorder, isOpen, initialSlot, resources]);
 
     // Check dirty state
     useEffect(() => {
@@ -180,6 +230,58 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
                 notes: '',
             }
         ]);
+    };
+
+    // Handle adding multiple resources from the picker
+    const handleAddMultipleResources = (selectedResources) => {
+        const defaultDate = formData.scheduled_date || new Date().toISOString().split('T')[0];
+        const defaultStart = `${defaultDate}T${formData.start_time || '08:00'}`;
+        const defaultEnd = `${defaultDate}T${formData.end_time || '17:00'}`;
+
+        const newResources = selectedResources.map(r => ({
+            resource_id: r.id,
+            name: r.name,
+            position_id: '',
+            start_time: defaultStart,
+            end_time: defaultEnd,
+            cost_type: 'HOURLY',
+            flat_rate: '',
+            pay_type_override: '',
+            notes: '',
+        }));
+
+        setAssignedResources([...assignedResources, ...newResources]);
+        setIsResourcePickerOpen(false);
+    };
+
+    // Handle loading a service (bulk add positions)
+    const handleLoadService = (servicePositions) => {
+        const defaultDate = formData.scheduled_date || new Date().toISOString().split('T')[0];
+        const defaultStart = `${defaultDate}T${formData.start_time || '08:00'}`;
+        const defaultEnd = `${defaultDate}T${formData.end_time || '17:00'}`;
+
+        // Create position slots for each position in the service
+        const newSlots = [];
+        servicePositions.forEach(sp => {
+            // Handle quantity - create multiple slots if quantity > 1
+            for (let i = 0; i < (sp.quantity || 1); i++) {
+                newSlots.push({
+                    resource_id: '',  // Empty - to be filled by user
+                    position_id: sp.position_id,
+                    position_name: sp.position_name,
+                    position_abbrev: sp.abbreviation,
+                    start_time: defaultStart,
+                    end_time: defaultEnd,
+                    cost_type: 'HOURLY',
+                    flat_rate: '',
+                    pay_type_override: '',
+                    notes: sp.notes || '',
+                });
+            }
+        });
+
+        setAssignedResources([...assignedResources, ...newSlots]);
+        setIsServicePickerOpen(false);
     };
 
     const syncAllResourcesTimes = () => {
@@ -463,6 +565,17 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
                                 ))}
                             </select>
                         </div>
+                        <div className="field-group" style={{ maxWidth: '120px' }}>
+                            <label>Job Type</label>
+                            <select
+                                value={formData.job_type}
+                                onChange={(e) => setFormData({ ...formData, job_type: e.target.value })}
+                                className="input-compact"
+                            >
+                                <option value="REMOTE">Remote</option>
+                                <option value="STUDIO">Studio</option>
+                            </select>
+                        </div>
                         <div className="field-group status-field">
                             <label>Status</label>
                             <select
@@ -536,7 +649,30 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
                                 className="input-compact"
                             />
                         </div>
-                        <div className="field-group" style={{ flex: 2 }}></div>
+                        <div className="field-group">
+                            <label>Region</label>
+                            <input
+                                type="text"
+                                value={formData.location_region}
+                                onChange={(e) => setFormData({ ...formData, location_region: e.target.value })}
+                                placeholder="e.g. AZ"
+                                className="input-compact"
+                            />
+                        </div>
+                        <div className="field-group">
+                            <label>Loc. Category</label>
+                            <select
+                                value={formData.location_category}
+                                onChange={(e) => setFormData({ ...formData, location_category: e.target.value })}
+                                className="input-compact"
+                            >
+                                <option value="">-</option>
+                                <option value="VENUE">Venue</option>
+                                <option value="CONTROL_ROOM">Control Room</option>
+                                <option value="STUDIO">Studio</option>
+                                <option value="REMOTE">Remote Site</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
@@ -546,8 +682,14 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
                     <div className="section-header">
                         <h3>Resources</h3>
                         <div className="section-actions">
+                            <button type="button" className="btn-secondary-small" onClick={() => setIsServicePickerOpen(true)} title="Load positions from a service template">
+                                🔧 Load Service
+                            </button>
                             <button type="button" className="btn-secondary-small" onClick={syncAllResourcesTimes} title="Set all resources to workorder time">
                                 ↺ Sync Times
+                            </button>
+                            <button type="button" className="btn-secondary-small" onClick={() => setIsResourcePickerOpen(true)} title="Select multiple resources">
+                                📃 Multi-Select
                             </button>
                             <button type="button" className="btn-primary-small" onClick={handleAddResource}>
                                 + Add Resource
@@ -1132,6 +1274,24 @@ function WorkorderModal({ isOpen, onClose, workorder, projects, resources, posit
                     margin-bottom: 1rem;
                 }
             `}</style>
+
+            {/* Resource Picker Modal for Multi-Select */}
+            <ResourcePickerModal
+                isOpen={isResourcePickerOpen}
+                onClose={() => setIsResourcePickerOpen(false)}
+                onSelect={handleAddMultipleResources}
+                resources={resources}
+                positions={positions}
+                existingResourceIds={assignedResources.map(r => parseInt(r.resource_id)).filter(Boolean)}
+            />
+
+            {/* Service Picker Modal for Loading Service Templates */}
+            <ServicePickerModal
+                isOpen={isServicePickerOpen}
+                onClose={() => setIsServicePickerOpen(false)}
+                onSelect={handleLoadService}
+                services={services}
+            />
         </DraggableModal >
     );
 }

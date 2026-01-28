@@ -11,6 +11,7 @@ const activityLogRoutes = require('./routes/activity-logs');
 const positionRoutes = require('./routes/positions');
 const workorderRoutes = require('./routes/workorders');
 const laborlawRoutes = require('./routes/laborlaws');
+const serviceRoutes = require('./routes/services');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -31,6 +32,7 @@ app.use('/api/activity-logs', activityLogRoutes);
 app.use('/api/positions', positionRoutes);
 app.use('/api/workorders', workorderRoutes);
 app.use('/api/laborlaws', laborlawRoutes);
+app.use('/api/services', serviceRoutes);
 app.use('/api/search', require('./routes/search'));
 
 

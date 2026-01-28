@@ -78,6 +78,14 @@ export const api = {
         return res.json();
     },
 
+    getProject: async (id) => {
+        const res = await fetch(`${API_BASE}/projects/${id}`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to fetch project');
+        return res.json();
+    },
+
     getWorkOrders: async (filters = {}) => {
         // Alias for backwards compatibility
         return api.getProjects(filters);
@@ -596,6 +604,64 @@ export const api = {
         if (!res.ok) {
             const err = await res.json();
             throw new Error(err.error || 'Failed to calculate cost');
+        }
+        return res.json();
+    },
+
+    // ============================================
+    // Services
+    // ============================================
+    getServices: async (filters = {}) => {
+        const params = new URLSearchParams(filters);
+        const res = await fetch(`${API_BASE}/services?${params}`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to fetch services');
+        return res.json();
+    },
+
+    getService: async (id) => {
+        const res = await fetch(`${API_BASE}/services/${id}`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to fetch service');
+        return res.json();
+    },
+
+    createService: async (data) => {
+        const res = await fetch(`${API_BASE}/services`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to create service');
+        }
+        return res.json();
+    },
+
+    updateService: async (id, data) => {
+        const res = await fetch(`${API_BASE}/services/${id}`, {
+            method: 'PUT',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to update service');
+        }
+        return res.json();
+    },
+
+    deleteService: async (id) => {
+        const res = await fetch(`${API_BASE}/services/${id}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to delete service');
         }
         return res.json();
     },

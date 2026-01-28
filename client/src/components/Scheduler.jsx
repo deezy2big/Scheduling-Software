@@ -209,6 +209,11 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
     const [groupManagerOpen, setGroupManagerOpen] = useState(false);
     const [selectedProject, setSelectedProject] = useState(null);
     const [selectedWorkorder, setSelectedWorkorder] = useState(null);
+    const [selectedSlot, setSelectedSlot] = useState(null); // For click-and-drag workorder creation
+
+    // Drag selection state for timeline view (horizontal drag across time)
+    const [dragSelection, setDragSelection] = useState(null); // { resourceId, dayDate, startX, currentX, startTime, endTime, rect }
+    const [isDragging, setIsDragging] = useState(false);
 
     // Toast state
     const [toast, setToast] = useState(null);
@@ -299,6 +304,29 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
             setWorkorderModalOpen(true);
         }
     }, [sidebarAction]);
+
+    // Global mouse up to handle drag cancellation
+    useEffect(() => {
+        const handleGlobalMouseUp = () => {
+            if (isDragging) {
+                setIsDragging(false);
+                setDragSelection(null);
+            }
+        };
+
+        if (isDragging) {
+            document.addEventListener('mouseup', handleGlobalMouseUp);
+            // Prevent text selection during drag
+            document.body.style.userSelect = 'none';
+        } else {
+            document.body.style.userSelect = '';
+        }
+
+        return () => {
+            document.removeEventListener('mouseup', handleGlobalMouseUp);
+            document.body.style.userSelect = '';
+        };
+    }, [isDragging]);
 
     const filteredResources = resources.filter(r => {
         if (focusedResourceId) return r.id === focusedResourceId;
@@ -401,8 +429,102 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
     };
 
     const handleSelectSlot = ({ resourceId, start, end }) => {
-        setSelectedWorkorder(null);
+        // Capture the selected time slot for click-and-drag workorder creation
+        setSelectedSlot({
+            resourceId,
+            start,
+            end,
+        });
+        setSelectedWorkorder(null); // Creating new workorder, not editing
         setWorkorderModalOpen(true);
+    };
+
+    // Helper function to convert X position to time
+    const xPositionToTime = (x, cellWidth, dayDate) => {
+        const hoursInDay = DAY_END_HOUR - DAY_START_HOUR;
+        const hourFloat = (x / cellWidth) * hoursInDay + DAY_START_HOUR;
+
+        // Round to nearest 15 minutes for smoother dragging
+        const hour = Math.floor(hourFloat);
+        const minutes = (hourFloat - hour) * 60;
+        const roundedMinutes = Math.round(minutes / 15) * 15;
+
+        const time = new Date(dayDate);
+        time.setHours(hour, roundedMinutes, 0, 0);
+
+        // Handle minute overflow
+        if (roundedMinutes === 60) {
+            time.setHours(hour + 1, 0, 0, 0);
+        }
+
+        return time;
+    };
+
+    // Drag handlers for timeline view (horizontal drag)
+    const handleMouseDown = (e, resourceId, dayDate) => {
+        if (e.button !== 0) return; // Only left click
+        e.preventDefault();
+
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+
+        const startTime = xPositionToTime(x, rect.width, dayDate);
+
+        setIsDragging(true);
+        setDragSelection({
+            resourceId,
+            dayDate,
+            startX: x,
+            currentX: x,
+            startTime,
+            endTime: startTime,
+            rect,
+        });
+    };
+
+    const handleMouseMove = (e, resourceId, dayDate) => {
+        if (!isDragging || !dragSelection) return;
+        if (dragSelection.resourceId !== resourceId || dragSelection.dayDate.getTime() !== dayDate.getTime()) return;
+
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+
+        const currentTime = xPositionToTime(x, rect.width, dayDate);
+
+        setDragSelection(prev => ({
+            ...prev,
+            currentX: x,
+            endTime: currentTime,
+        }));
+    };
+
+    const handleMouseUp = (_e, resourceId, dayDate) => {
+        if (!isDragging || !dragSelection) return;
+        if (dragSelection.resourceId !== resourceId || dragSelection.dayDate.getTime() !== dayDate.getTime()) return;
+
+        let startDate = new Date(dragSelection.startTime);
+        let endDate = new Date(dragSelection.endTime);
+
+        // Ensure start is before end
+        if (endDate < startDate) {
+            [startDate, endDate] = [endDate, startDate];
+        }
+
+        // Ensure minimum 30-minute duration
+        if (endDate <= startDate) {
+            endDate = new Date(startDate.getTime() + 30 * 60 * 1000);
+        }
+
+        // Reset drag state
+        setIsDragging(false);
+        setDragSelection(null);
+
+        // Open workorder modal with selected slot
+        handleSelectSlot({
+            resourceId,
+            start: startDate,
+            end: endDate,
+        });
     };
 
     const handleSelectEvent = (event) => {
@@ -666,10 +788,115 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
                                                 </div>
                                                 <div className="resource-timeline">
                                                     {gridDays.map(dayDate => (
-                                                        <div key={dayDate.toString()} className="day-cell" onClick={() => handleSelectSlot({ resourceId: resource.id, start: dayDate, end: dayDate })}>
+                                                        <div
+                                                            key={dayDate.toString()}
+                                                            className="day-cell"
+                                                            onMouseDown={(e) => handleMouseDown(e, resource.id, dayDate)}
+                                                            onMouseMove={(e) => handleMouseMove(e, resource.id, dayDate)}
+                                                            onMouseUp={(e) => handleMouseUp(e, resource.id, dayDate)}
+                                                            style={{ cursor: isDragging ? 'ew-resize' : 'crosshair', position: 'relative' }}
+                                                        >
                                                             <div className="time-grid-lines">
                                                                 {Array.from({ length: DAY_END_HOUR - DAY_START_HOUR }).map((_, idx) => <div key={idx} className="time-grid-line" />)}
                                                             </div>
+
+                                                            {/* Drag selection overlay - Horizontal */}
+                                                            {isDragging && dragSelection &&
+                                                                dragSelection.resourceId === resource.id &&
+                                                                dragSelection.dayDate.getTime() === dayDate.getTime() && (() => {
+                                                                    const leftX = Math.min(dragSelection.startX, dragSelection.currentX);
+                                                                    const rightX = Math.max(dragSelection.startX, dragSelection.currentX);
+                                                                    const width = rightX - leftX;
+
+                                                                    // Determine actual start and end times
+                                                                    const actualStart = dragSelection.startTime < dragSelection.endTime ? dragSelection.startTime : dragSelection.endTime;
+                                                                    const actualEnd = dragSelection.startTime < dragSelection.endTime ? dragSelection.endTime : dragSelection.startTime;
+
+                                                                    return (
+                                                                        <div
+                                                                            className="drag-selection-overlay"
+                                                                            style={{
+                                                                                position: 'absolute',
+                                                                                left: `${leftX}px`,
+                                                                                width: `${Math.max(width, 2)}px`,
+                                                                                top: 0,
+                                                                                bottom: 0,
+                                                                                backgroundColor: 'rgba(59, 130, 246, 0.25)',
+                                                                                border: '2px solid rgba(59, 130, 246, 0.7)',
+                                                                                borderRadius: '4px',
+                                                                                pointerEvents: 'none',
+                                                                                zIndex: 5,
+                                                                            }}
+                                                                        >
+                                                                            {/* Start time tooltip */}
+                                                                            <div style={{
+                                                                                position: 'absolute',
+                                                                                left: dragSelection.startX < dragSelection.currentX ? '-2px' : 'auto',
+                                                                                right: dragSelection.startX >= dragSelection.currentX ? '-2px' : 'auto',
+                                                                                top: '-28px',
+                                                                                backgroundColor: 'rgba(59, 130, 246, 0.95)',
+                                                                                color: 'white',
+                                                                                padding: '4px 8px',
+                                                                                borderRadius: '4px',
+                                                                                fontSize: '12px',
+                                                                                fontWeight: 600,
+                                                                                whiteSpace: 'nowrap',
+                                                                                boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                                                                            }}>
+                                                                                {format(actualStart, 'h:mm a')}
+                                                                            </div>
+
+                                                                            {/* End time tooltip */}
+                                                                            <div style={{
+                                                                                position: 'absolute',
+                                                                                left: dragSelection.startX >= dragSelection.currentX ? '-2px' : 'auto',
+                                                                                right: dragSelection.startX < dragSelection.currentX ? '-2px' : 'auto',
+                                                                                bottom: '-28px',
+                                                                                backgroundColor: 'rgba(147, 51, 234, 0.95)',
+                                                                                color: 'white',
+                                                                                padding: '4px 8px',
+                                                                                borderRadius: '4px',
+                                                                                fontSize: '12px',
+                                                                                fontWeight: 600,
+                                                                                whiteSpace: 'nowrap',
+                                                                                boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                                                                            }}>
+                                                                                {format(actualEnd, 'h:mm a')}
+                                                                            </div>
+
+                                                                            {/* Duration display in center */}
+                                                                            {width > 60 && (() => {
+                                                                                const totalMinutes = differenceInMinutes(actualEnd, actualStart);
+                                                                                const hours = Math.floor(totalMinutes / 60);
+                                                                                const minutes = totalMinutes % 60;
+                                                                                const durationText = hours > 0
+                                                                                    ? `${hours}h ${minutes}m`
+                                                                                    : `${minutes} min`;
+
+                                                                                return (
+                                                                                    <div style={{
+                                                                                        position: 'absolute',
+                                                                                        left: '50%',
+                                                                                        top: '50%',
+                                                                                        transform: 'translate(-50%, -50%)',
+                                                                                        backgroundColor: 'rgba(30, 41, 59, 0.9)',
+                                                                                        color: '#60a5fa',
+                                                                                        padding: '4px 10px',
+                                                                                        borderRadius: '6px',
+                                                                                        fontSize: '11px',
+                                                                                        fontWeight: 700,
+                                                                                        whiteSpace: 'nowrap',
+                                                                                        border: '1px solid rgba(59, 130, 246, 0.4)',
+                                                                                    }}>
+                                                                                        {durationText}
+                                                                                    </div>
+                                                                                );
+                                                                            })()}
+                                                                        </div>
+                                                                    );
+                                                                })()
+                                                            }
+
                                                             <div className="events-container">
                                                                 {(() => {
                                                                     const dayEvents = getEventsForResourceDay(resource.id, dayDate);
@@ -707,8 +934,20 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
             </div>
 
             <ProjectModal isOpen={projectModalOpen} onClose={() => setProjectModalOpen(false)} project={selectedProject} onSave={handleSaveProject} />
-            <WorkorderModal isOpen={workorderModalOpen} onClose={() => setWorkorderModalOpen(false)} workorder={selectedWorkorder}
-                projects={projects} resources={resources} positions={positions} onSave={handleSaveWorkorder} onDelete={handleDeleteWorkorder} />
+            <WorkorderModal
+                isOpen={workorderModalOpen}
+                onClose={() => {
+                    setWorkorderModalOpen(false);
+                    setSelectedSlot(null); // Clear selected slot when modal closes
+                }}
+                workorder={selectedWorkorder}
+                initialSlot={selectedSlot}
+                projects={projects}
+                resources={resources}
+                positions={positions}
+                onSave={handleSaveWorkorder}
+                onDelete={handleDeleteWorkorder}
+            />
             <GroupManager isOpen={groupManagerOpen} onClose={() => setGroupManagerOpen(false)} onUpdate={fetchData} />
 
             {toast && <div className="toast-container"><div className={`toast toast-${toast.type}`}>{toast.type === 'success' ? '✓' : '✕'} {toast.message}</div></div>}

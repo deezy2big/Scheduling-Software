@@ -6,7 +6,9 @@ import ActivityLogs from './pages/ActivityLogs';
 import Sidebar from './components/Sidebar';
 import Scheduler from './components/Scheduler';
 import ResourceManager from './components/ResourceManager';
+import ServiceManager from './components/ServiceManager';
 import SearchResults from './pages/SearchResults';
+import ProjectDetails from './pages/ProjectDetails';
 
 import api from './api';
 
@@ -17,6 +19,7 @@ function AppContent() {
   const [positionGroups, setPositionGroups] = useState([]);
   const [projects, setProjects] = useState([]);
   const [selectedGroupId, setSelectedGroupId] = useState(null);
+  const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch groups for the sidebar
@@ -61,6 +64,14 @@ function AppContent() {
       return;
     }
 
+    // Handle view-project action
+    if (String(action).startsWith('view-project-')) {
+      const projectId = action.replace('view-project-', '');
+      setSelectedProjectId(projectId);
+      setActiveView('project-details');
+      return;
+    }
+
     // Reset filter if navigating to main resources page
     if (action === 'view-all-resources') {
       setSelectedGroupId(null);
@@ -87,6 +98,13 @@ function AppContent() {
 
   const renderContent = () => {
     switch (activeView) {
+      case 'project-details':
+        return (
+          <ProjectDetails
+            projectId={selectedProjectId}
+            onClose={() => setActiveView('schedule')}
+          />
+        );
       case 'search':
         return (
           <SearchResults
@@ -104,6 +122,8 @@ function AppContent() {
         );
       case 'resources':
         return <ResourceManager initialGroupId={selectedGroupId} />;
+      case 'services':
+        return <ServiceManager />;
       case 'users':
         return <UserManagement />;
       case 'logs':

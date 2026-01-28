@@ -192,6 +192,9 @@ router.post('/', requireAuth, requirePermission('edit_schedules'), async (req, r
         end_time,
         location,
         notes,
+        job_type,
+        location_category,
+        location_region,
         resources
     } = req.body;
 
@@ -208,8 +211,9 @@ router.post('/', requireAuth, requirePermission('edit_schedules'), async (req, r
         const { rows: workorderRows } = await client.query(`
             INSERT INTO workorders (
                 project_id, title, description, status, scheduled_date,
-                start_time, end_time, location, notes, created_by
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                start_time, end_time, location, notes, created_by, job_type,
+                location_category, location_region
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING *
         `, [
             project_id,
@@ -221,7 +225,10 @@ router.post('/', requireAuth, requirePermission('edit_schedules'), async (req, r
             end_time || null,
             location || null,
             notes || null,
-            req.user.id
+            req.user.id,
+            job_type || null,
+            location_category || null,
+            location_region || null
         ]);
 
         const workorder = workorderRows[0];
@@ -290,6 +297,9 @@ router.put('/:id', requireAuth, requirePermission('edit_schedules'), async (req,
         end_time,
         location,
         notes,
+        job_type,
+        location_category,
+        location_region,
         resources
     } = req.body;
 
@@ -309,10 +319,13 @@ router.put('/:id', requireAuth, requirePermission('edit_schedules'), async (req,
                 end_time = COALESCE($6, end_time),
                 location = COALESCE($7, location),
                 notes = COALESCE($8, notes),
+                job_type = COALESCE($10, job_type),
+                location_category = COALESCE($11, location_category),
+                location_region = COALESCE($12, location_region),
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $9
             RETURNING *
-        `, [title, description, status, scheduled_date, start_time, end_time, location, notes, id]);
+        `, [title, description, status, scheduled_date, start_time, end_time, location, notes, id, job_type, location_category, location_region]);
 
         if (rows.length === 0) {
             await client.query('ROLLBACK');
@@ -422,8 +435,9 @@ router.post('/:id/duplicate', requireAuth, requirePermission('edit_schedules'), 
             INSERT INTO workorders (
                 project_id, title, description, status, scheduled_date,
                 start_time, end_time, location, notes, created_by,
-                workorder_number, bid_number, po_number
-            ) VALUES ($1, $2, $3, 'PENDING', $4, $5, $6, $7, $8, $9, NULL, $10, $11)
+                workorder_number, bid_number, po_number, job_type,
+                location_category, location_region
+            ) VALUES ($1, $2, $3, 'PENDING', $4, $5, $6, $7, $8, $9, NULL, $10, $11, $12, $13, $14)
             RETURNING *
         `, [
             original.project_id,
@@ -436,7 +450,10 @@ router.post('/:id/duplicate', requireAuth, requirePermission('edit_schedules'), 
             original.notes,
             req.user.id,
             original.bid_number,
-            original.po_number
+            original.po_number,
+            original.job_type,
+            original.location_category,
+            original.location_region
         ]);
         const newWo = newWos[0];
 

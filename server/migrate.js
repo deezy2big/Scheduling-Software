@@ -4,15 +4,15 @@ const db = require('./db');
 
 async function runMigration() {
     try {
-        const migrationPath = path.join(__dirname, 'db', 'migration_v2.sql');
-        const migrationSql = fs.readFileSync(migrationPath, 'utf8');
+        const sqlPath = path.join(__dirname, 'db', 'migration_v11.sql');
+        const sql = fs.readFileSync(sqlPath, 'utf8');
 
-        console.log('Running migration v2...');
-        await db.query(migrationSql);
-        console.log('Migration v2 complete.');
+        console.log('Running migration v11...');
+        await db.query(sql);
+        console.log('Migration v11 completed successfully.');
         process.exit(0);
     } catch (err) {
-        console.error('Error running migration:', err);
+        console.error('Migration failed:', err);
         process.exit(1);
     }
 }

@@ -1,0 +1,187 @@
+.project-details-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background-color: #e2e8f0;
+    /* Windows 95/XP-ish gray, or lighter fitting the dark mode? User asked for premium dark mode. Let's keep it dark but structured. */
+    background-color: #1e293b;
+    color: #f1f5f9;
+    font-family: 'Inter', sans-serif;
+}
+
+.pd-header {
+    background-color: #0f172a;
+    padding: 12px 16px;
+    border-bottom: 1px solid #334155;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.pd-title-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.pd-title-row h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+    color: #e2e8f0;
+}
+
+.pd-tabs {
+    display: flex;
+    background-color: #334155;
+    padding: 0 4px;
+    border-bottom: 1px solid #475569;
+}
+
+.pd-tab {
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    background: none;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    border-top: 2px solid transparent;
+}
+
+.pd-tab.active {
+    background-color: #1e293b;
+    color: #fff;
+    border-top-color: #3b82f6;
+    border-radius: 4px 4px 0 0;
+}
+
+.pd-content {
+    flex: 1;
+    overflow: auto;
+    padding: 16px;
+    background-color: #1e293b;
+}
+
+/* Table container to mimic the dense grid */
+.pd-table-wrapper {
+    background-color: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.pd-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+.pd-table th {
+    background-color: #1e293b;
+    color: #94a3b8;
+    font-weight: 600;
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid #334155;
+    border-right: 1px solid #334155;
+}
+
+.pd-table td {
+    padding: 6px 12px;
+    border-bottom: 1px solid #1e293b;
+    border-right: 1px solid #1e293b;
+    color: #cbd5e1;
+}
+
+.pd-table tr:hover td {
+    background-color: #334155;
+}
+
+.pd-table tbody tr {
+    cursor: pointer;
+}
+
+.pd-table td.money {
+    text-align: right;
+    font-family: 'Roboto Mono', monospace;
+}
+
+.pd-footer {
+    background-color: #0f172a;
+    padding: 12px 16px;
+    border-top: 1px solid #334155;
+    display: flex;
+    gap: 24px;
+    font-size: 0.85rem;
+    align-items: center;
+}
+
+.pd-footer-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pd-footer-label {
+    color: #64748b;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.pd-footer-value {
+    color: #e2e8f0;
+    font-weight: 600;
+    font-family: 'Roboto Mono', monospace;
+}
+
+.pd-footer-value.negative {
+    color: #ef4444;
+}
+
+.pd-footer-value.positive {
+    color: #22c55e;
+}
+
+/* Status Badges */
+.status-badge {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-badge.remote {
+    background-color: #3b82f6;
+    color: #fff;
+}
+
+.status-badge.studio {
+    background-color: #8b5cf6;
+    color: #fff;
+}
+
+/* Toolbar */
+.pd-toolbar {
+    margin-bottom: 12px;
+    display: flex;
+    gap: 8px;
+}
+
+.btn-icon-text {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background-color: #334155;
+    border: 1px solid #475569;
+    color: #e2e8f0;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.btn-icon-text:hover {
+    background-color: #475569;
+}

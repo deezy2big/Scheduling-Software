@@ -115,16 +115,22 @@ export function Sidebar({ activeView, onViewChange, onAction, positionGroups = [
                                     ) : (
                                         projects.map(project => (
                                             <div key={project.id} className="mb-1">
-                                                <button
-                                                    onClick={() => toggleProject(project.id)}
-                                                    className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-left transition-all duration-200 text-slate-400 hover:text-white hover:bg-white/5 group`}
-                                                >
-                                                    <div className="flex items-center gap-2 truncate">
+                                                <div className="w-full flex items-center justify-between px-2 py-1.5 rounded-md text-left transition-all duration-200 text-slate-400 hover:text-white hover:bg-white/5 group">
+                                                    <button
+                                                        onClick={() => onAction(`view-project-${project.id}`)}
+                                                        className="flex items-center gap-2 truncate flex-1 text-left"
+                                                        title="View Project Details"
+                                                    >
                                                         <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: project.color || '#3B82F6' }}></span>
-                                                        <span className="text-xs font-medium truncate" title={project.title}>{project.title}</span>
-                                                    </div>
-                                                    <span className={`text-[10px] transition-transform duration-200 ${expandedProjectIds.includes(project.id) ? '' : '-rotate-90'}`}>▾</span>
-                                                </button>
+                                                        <span className="text-xs font-medium truncate hover:text-blue-300 transition-colors uppercase tracking-tight">{project.title}</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); toggleProject(project.id); }}
+                                                        className="p-1 hover:bg-white/10 rounded flex-shrink-0"
+                                                    >
+                                                        <span className={`text-[10px] transition-transform duration-200 block ${expandedProjectIds.includes(project.id) ? '' : '-rotate-90'}`}>▾</span>
+                                                    </button>
+                                                </div>
 
                                                 {expandedProjectIds.includes(project.id) && (
                                                     <div className="ml-4 pl-2 border-l border-white/5 mt-0.5 space-y-0.5">
@@ -346,6 +352,16 @@ export function Sidebar({ activeView, onViewChange, onAction, positionGroups = [
                                 icon="⚙️"
                                 isAction
                                 onClick={() => handleAction('manage-groups')}
+                                isCollapsed={isCollapsed}
+                                adminOnly
+                                userRole={user?.role}
+                            />
+                            <SidebarItem
+                                id="services"
+                                label="Services"
+                                icon="🔧"
+                                active={activeView === 'services'}
+                                onClick={() => onViewChange('services')}
                                 isCollapsed={isCollapsed}
                                 adminOnly
                                 userRole={user?.role}
