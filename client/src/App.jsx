@@ -7,8 +7,10 @@ import Sidebar from './components/Sidebar';
 import Scheduler from './components/Scheduler';
 import ResourceManager from './components/ResourceManager';
 import ServiceManager from './components/ServiceManager';
+import HierarchyManager from './components/HierarchyManager';
 import SearchResults from './pages/SearchResults';
 import ProjectDetails from './pages/ProjectDetails';
+import ProjectsList from './components/ProjectsList';
 
 import api from './api';
 
@@ -98,6 +100,17 @@ function AppContent() {
 
   const renderContent = () => {
     switch (activeView) {
+      case 'projects':
+        return (
+          <ProjectsList
+            projects={projects}
+            onSelectProject={(id) => {
+              setSelectedProjectId(id);
+              setActiveView('project-details');
+            }}
+            onNewProject={() => handleSidebarAction('new-project')}
+          />
+        );
       case 'project-details':
         return (
           <ProjectDetails
@@ -124,13 +137,25 @@ function AppContent() {
         return <ResourceManager initialGroupId={selectedGroupId} />;
       case 'services':
         return <ServiceManager />;
+      case 'hierarchy':
+        return <HierarchyManager />;
       case 'users':
         return <UserManagement />;
       case 'logs':
         return <ActivityLogs />;
       case 'schedule':
       default:
-        return <Scheduler sidebarAction={sidebarAction} onDataChange={fetchData} />;
+        return (
+          <Scheduler
+            sidebarAction={sidebarAction}
+            onDataChange={fetchData}
+            onProjectCreated={(projectId) => {
+              // Auto-redirect to the new project's details page
+              setSelectedProjectId(projectId);
+              setActiveView('project-details');
+            }}
+          />
+        );
     }
   };
 

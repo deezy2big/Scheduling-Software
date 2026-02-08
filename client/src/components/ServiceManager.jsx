@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../api';
 
 function ServiceModal({ isOpen, onClose, service, onSave, positions, positionGroups }) {
@@ -12,17 +12,47 @@ function ServiceModal({ isOpen, onClose, service, onSave, positions, positionGro
     const [error, setError] = useState('');
     const [newPositionId, setNewPositionId] = useState('');
     const [newQuantity, setNewQuantity] = useState(1);
+    const [isDirty, setIsDirty] = useState(false);
+    const initialDataRef = useRef(null);
+    const lastServiceIdRef = useRef(null);
 
     useEffect(() => {
+        if (!isOpen) {
+            // Only reset when modal actually closes
+            initialDataRef.current = null;
+            lastServiceIdRef.current = null;
+            setIsDirty(false);
+            setError('');
+            return;
+        }
+
+        const currentServiceId = service?.id ?? 'new';
+
+        // Only re-initialize if we haven't initialized yet, or if the service ID changed
+        if (lastServiceIdRef.current === currentServiceId && initialDataRef.current) {
+            return; // Already initialized for this service, don't reset
+        }
+
+        // Mark that we're initializing for this service
+        lastServiceIdRef.current = currentServiceId;
+
+        let initialState = {
+            formData: {
+                name: '',
+                description: '',
+                is_active: true,
+            },
+            servicePositions: []
+        };
+
         if (service) {
-            setFormData({
-                name: service.name || '',
-                description: service.description || '',
-                is_active: service.is_active !== false,
-            });
-            // Map service positions to working format
-            setServicePositions(
-                (service.positions || []).map(p => ({
+            initialState = {
+                formData: {
+                    name: service.name || '',
+                    description: service.description || '',
+                    is_active: service.is_active !== false,
+                },
+                servicePositions: (service.positions || []).map(p => ({
                     position_id: p.position_id,
                     position_name: p.position_name,
                     abbreviation: p.abbreviation,
@@ -32,19 +62,33 @@ function ServiceModal({ isOpen, onClose, service, onSave, positions, positionGro
                     quantity: p.quantity || 1,
                     notes: p.notes || '',
                 }))
-            );
-        } else {
-            setFormData({
-                name: '',
-                description: '',
-                is_active: true,
-            });
-            setServicePositions([]);
+            };
         }
+
+        setFormData(initialState.formData);
+        setServicePositions(initialState.servicePositions);
+        initialDataRef.current = JSON.stringify(initialState);
+        setIsDirty(false);
         setError('');
         setNewPositionId('');
         setNewQuantity(1);
     }, [service, isOpen]);
+
+    useEffect(() => {
+        if (!initialDataRef.current) return;
+        const currentData = JSON.stringify({ formData, servicePositions });
+        setIsDirty(currentData !== initialDataRef.current);
+    }, [formData, servicePositions]);
+
+    const handleCloseRequest = () => {
+        if (isDirty) {
+            if (window.confirm('You have unsaved changes. Are you sure you want to discard them?')) {
+                onClose();
+            }
+        } else {
+            onClose();
+        }
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -55,7 +99,7 @@ function ServiceModal({ isOpen, onClose, service, onSave, positions, positionGro
         }
 
         setLoading(true);
-        setError('');
+        // Note: Removed setError('') from here to prevent "flashing" while waiting for server response
 
         try {
             const submitData = {
@@ -72,6 +116,7 @@ function ServiceModal({ isOpen, onClose, service, onSave, positions, positionGro
             } else {
                 await api.createService(submitData);
             }
+            setIsDirty(false);
             onSave();
             onClose();
         } catch (err) {
@@ -130,6 +175,37 @@ function ServiceModal({ isOpen, onClose, service, onSave, positions, positionGro
         ));
     };
 
+    const handleDragStart = (e, index) => {
+        e.dataTransfer.setData('index', index);
+        e.currentTarget.classList.add('dragging');
+    };
+
+    const handleDragEnd = (e) => {
+        e.currentTarget.classList.remove('dragging');
+    };
+
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        e.currentTarget.classList.add('drag-over');
+    };
+
+    const handleDragLeave = (e) => {
+        e.currentTarget.classList.remove('drag-over');
+    };
+
+    const handleDrop = (e, toIndex) => {
+        e.preventDefault();
+        e.currentTarget.classList.remove('drag-over');
+        const fromIndex = parseInt(e.dataTransfer.getData('index'));
+
+        if (fromIndex === toIndex) return;
+
+        const newPositions = [...servicePositions];
+        const [movedItem] = newPositions.splice(fromIndex, 1);
+        newPositions.splice(toIndex, 0, movedItem);
+        setServicePositions(newPositions);
+    };
+
     if (!isOpen) return null;
 
     const availablePositions = positions.filter(p =>
@@ -147,13 +223,13 @@ function ServiceModal({ isOpen, onClose, service, onSave, positions, positionGro
     });
 
     return (
-        <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-overlay" onClick={handleCloseRequest}>
             <div className="modal-content service-modal" onClick={(e) => e.stopPropagation()}>
                 <div className="modal-header">
                     <h2 className="modal-title">
                         {service ? 'Edit Service' : 'Add New Service'}
                     </h2>
-                    <button className="modal-close" onClick={onClose}>x</button>
+                    <button type="button" className="modal-close" onClick={handleCloseRequest}>x</button>
                 </div>
 
                 <form onSubmit={handleSubmit} className="modal-form">
@@ -202,6 +278,7 @@ function ServiceModal({ isOpen, onClose, service, onSave, positions, positionGro
                             <table className="positions-table">
                                 <thead>
                                     <tr>
+                                        <th style={{ width: '30px' }}></th>
                                         <th>Position</th>
                                         <th>Group</th>
                                         <th>Qty</th>
@@ -210,8 +287,20 @@ function ServiceModal({ isOpen, onClose, service, onSave, positions, positionGro
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {servicePositions.map(sp => (
-                                        <tr key={sp.position_id}>
+                                    {servicePositions.map((sp, index) => (
+                                        <tr
+                                            key={sp.position_id}
+                                            draggable
+                                            onDragStart={(e) => handleDragStart(e, index)}
+                                            onDragEnd={handleDragEnd}
+                                            onDragOver={handleDragOver}
+                                            onDragLeave={handleDragLeave}
+                                            onDrop={(e) => handleDrop(e, index)}
+                                            className="draggable-row"
+                                        >
+                                            <td className="drag-handle-cell">
+                                                <div className="drag-handle-icon">⠿</div>
+                                            </td>
                                             <td>
                                                 <span className="position-name">{sp.position_name}</span>
                                                 {sp.abbreviation && <span className="position-abbr">({sp.abbreviation})</span>}
@@ -374,6 +463,34 @@ function ServiceModal({ isOpen, onClose, service, onSave, positions, positionGro
                         color: #64748b;
                         font-style: italic;
                         font-size: 0.875rem;
+                    }
+                    .draggable-row {
+                        cursor: grab;
+                        transition: transform 0.2s ease, background-color 0.2s ease;
+                    }
+                    .draggable-row.dragging {
+                        opacity: 0.5;
+                        cursor: grabbing;
+                    }
+                    .draggable-row.drag-over {
+                        background-color: rgba(59, 130, 246, 0.05);
+                        border-top: 2px solid var(--accent-primary) !important;
+                    }
+                    .drag-handle-cell {
+                        text-align: center;
+                        vertical-align: middle;
+                        padding-left: 8px !important;
+                        width: 40px;
+                    }
+                    .drag-handle-icon {
+                        color: var(--text-muted);
+                        font-size: 1.2rem;
+                        user-select: none;
+                        opacity: 0.6;
+                    }
+                    .draggable-row:hover .drag-handle-icon {
+                        opacity: 1;
+                        color: var(--text-secondary);
                     }
                     .positions-table {
                         width: 100%;
@@ -571,6 +688,15 @@ export function ServiceManager() {
         }
     };
 
+    const handleDuplicate = async (id) => {
+        try {
+            await api.duplicateService(id);
+            fetchServices();
+        } catch (err) {
+            alert(err.message);
+        }
+    };
+
     const handleAdd = () => {
         setEditingService(null);
         setModalOpen(true);
@@ -631,11 +757,19 @@ export function ServiceManager() {
                         placeholder="Search services..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="bg-slate-800 border border-slate-600 rounded pl-8 pr-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500 w-64"
+                        className="bg-slate-800 border border-slate-600 rounded pl-8 pr-10 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500 w-64 transition-all"
                     />
                     <svg className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 transform -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                     </svg>
+                    {searchQuery && (
+                        <button
+                            onClick={() => setSearchQuery('')}
+                            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                        >
+                            ✕
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -663,7 +797,12 @@ export function ServiceManager() {
                         </thead>
                         <tbody>
                             {getFilteredServices().map((service) => (
-                                <tr key={service.id}>
+                                <tr
+                                    key={service.id}
+                                    className="service-row"
+                                    onDoubleClick={() => handleEdit(service)}
+                                    title={`Service: ${service.name}\n${(service.positions || []).map(p => `• ${p.quantity}x ${p.position_name}`).join('\n')}`}
+                                >
                                     <td className="font-medium">{service.name}</td>
                                     <td className="text-slate-400 text-sm">
                                         {service.description || '-'}
@@ -676,21 +815,16 @@ export function ServiceManager() {
                                                         {getTotalPositions(service)} position{getTotalPositions(service) !== 1 ? 's' : ''}
                                                     </span>
                                                     <div className="flex flex-wrap gap-1 mt-1">
-                                                        {service.positions.slice(0, 5).map((p, i) => (
+                                                        {service.positions.map((p, i) => (
                                                             <span
                                                                 key={i}
-                                                                className="text-[10px] px-1.5 py-0.5 rounded text-white"
+                                                                className="text-[11px] px-1.5 py-0.5 rounded text-white font-medium"
                                                                 style={{ backgroundColor: p.group_color || '#475569' }}
                                                             >
                                                                 {p.abbreviation || p.position_name}
                                                                 {p.quantity > 1 && ` x${p.quantity}`}
                                                             </span>
                                                         ))}
-                                                        {service.positions.length > 5 && (
-                                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-600 text-slate-300">
-                                                                +{service.positions.length - 5} more
-                                                            </span>
-                                                        )}
                                                     </div>
                                                 </>
                                             ) : (
@@ -710,6 +844,13 @@ export function ServiceManager() {
                                                 onClick={() => handleEdit(service)}
                                             >
                                                 Edit
+                                            </button>
+                                            <button
+                                                className="btn btn-sm btn-secondary"
+                                                onClick={() => handleDuplicate(service.id)}
+                                                title="Duplicate this service"
+                                            >
+                                                Duplicate
                                             </button>
                                             <button
                                                 className="btn btn-sm btn-danger"
@@ -735,6 +876,18 @@ export function ServiceManager() {
                 positions={positions}
                 positionGroups={positionGroups}
             />
+            <style>{`
+                .service-row {
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+                .service-row:hover td {
+                    background: rgba(59, 130, 246, 0.08) !important;
+                }
+                .service-row:active td {
+                    background: rgba(59, 130, 246, 0.15) !important;
+                }
+            `}</style>
         </div>
     );
 }

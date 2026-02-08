@@ -78,13 +78,15 @@ export function ProjectModal({ isOpen, onClose, project, onSave, onDelete }) {
         setError('');
 
         try {
+            let savedProject;
             if (project?.id) {
-                await api.updateProject(project.id, formData);
+                savedProject = await api.updateProject(project.id, formData);
             } else {
-                await api.createProject(formData);
+                savedProject = await api.createProject(formData);
             }
             setIsDirty(false); // Clear dirty state on success
-            onSave();
+            // Pass the new/updated project ID to onSave for auto-redirect
+            onSave(savedProject?.id || savedProject?.project?.id);
             onClose();
         } catch (err) {
             setError(err.message);

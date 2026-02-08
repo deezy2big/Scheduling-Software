@@ -150,7 +150,9 @@ export default function ResourceGroupManager({ isOpen, onClose, onUpdate }) {
                     {/* Form to add/edit */}
                     <div className="group-form-container">
                         <h3>{editingId ? 'Edit Group' : 'Add New Group'}</h3>
-                        <form onSubmit={handleSubmit}>
+                        <form onSubmit={handleSubmit} onKeyDown={(e) => {
+                            if (e.key === 'Enter') e.preventDefault();
+                        }}>
                             {error && <div className="error-message mb-3">{error}</div>}
 
                             <div className="form-group mb-3">

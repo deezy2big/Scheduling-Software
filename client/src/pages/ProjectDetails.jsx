@@ -11,7 +11,7 @@ const formatCurrency = (val) => {
 export default function ProjectDetails({ projectId, onClose }) {
     const [project, setProject] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('wk_orders_list');
+    const [activeTab, setActiveTab] = useState('by_wk_order');
     const [error, setError] = useState(null);
 
     // Modal State
@@ -143,7 +143,7 @@ export default function ProjectDetails({ projectId, onClose }) {
 
             {/* Tabs */}
             <div className="pd-tabs">
-                {['Main', 'Wk Orders List', 'by Wk Order', 'by Category', 'by Service', 'by Status', 'View', 'History', 'Attachments'].map(tab => (
+                {['Main', 'by Wk Order'].map(tab => (
                     <button
                         key={tab}
                         className={`pd-tab ${activeTab === tab.toLowerCase().replace(/ /g, '_') ? 'active' : ''}`}

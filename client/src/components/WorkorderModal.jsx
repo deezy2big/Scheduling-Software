@@ -90,9 +90,6 @@ function WorkorderModal({ isOpen, onClose, workorder, initialSlot, projects, res
                 location: workorder.location || '',
                 notes: workorder.notes || '',
                 bid_number: workorder.bid_number || '',
-                bid_number: workorder.bid_number || '',
-                po_number: workorder.po_number || '',
-                bid_number: workorder.bid_number || '',
                 po_number: workorder.po_number || '',
                 job_type: workorder.job_type || 'REMOTE',
                 location_category: workorder.location_category || '',
@@ -106,8 +103,11 @@ function WorkorderModal({ isOpen, onClose, workorder, initialSlot, projects, res
             const defaultStartTime = initialSlot?.start ? new Date(initialSlot.start).toTimeString().slice(0, 5) : '08:00';
             const defaultEndTime = initialSlot?.end ? new Date(initialSlot.end).toTimeString().slice(0, 5) : '17:00';
 
+            // Check if we have a "new workorder with project context" (no ID but has project_id)
+            const preSelectedProject = workorder?.project_id ? workorder.project_id : '';
+
             initialForm = {
-                project_id: '',
+                project_id: preSelectedProject,
                 title: '',
                 description: '',
                 status: 'PENDING',
@@ -116,9 +116,6 @@ function WorkorderModal({ isOpen, onClose, workorder, initialSlot, projects, res
                 end_time: defaultEndTime,
                 location: '',
                 notes: '',
-                bid_number: '',
-                bid_number: '',
-                po_number: '',
                 bid_number: '',
                 po_number: '',
                 job_type: 'REMOTE',
@@ -232,25 +229,41 @@ function WorkorderModal({ isOpen, onClose, workorder, initialSlot, projects, res
         ]);
     };
 
+    const handleAddRequirement = () => {
+        handleAddResource();
+    };
+
     // Handle adding multiple resources from the picker
-    const handleAddMultipleResources = (selectedResources) => {
+    // Handle adding multiple resources from the picker
+    const handleAddMultipleResources = (selectedRows) => {
         const defaultDate = formData.scheduled_date || new Date().toISOString().split('T')[0];
         const defaultStart = `${defaultDate}T${formData.start_time || '08:00'}`;
         const defaultEnd = `${defaultDate}T${formData.end_time || '17:00'}`;
 
-        const newResources = selectedResources.map(r => ({
-            resource_id: r.id,
-            name: r.name,
-            position_id: '',
-            start_time: defaultStart,
-            end_time: defaultEnd,
-            cost_type: 'HOURLY',
-            flat_rate: '',
-            pay_type_override: '',
-            notes: '',
-        }));
+        const newResources = selectedRows.map(row => {
+            // Support both new flattened row structure and legacy resource object
+            const resourceId = row.resourceId || row.id;
+            const resourceName = row.name;
+            const positionId = row.positionId || '';
 
-        setAssignedResources([...assignedResources, ...newResources]);
+            return {
+                resource_id: resourceId,
+                name: resourceName,
+                position_id: positionId,
+                start_time: defaultStart,
+                end_time: defaultEnd,
+                cost_type: 'HOURLY',
+                flat_rate: '',
+                pay_type_override: '',
+                notes: '',
+            };
+        });
+
+        setAssignedResources(prev => [...prev, ...newResources]);
+
+        // Fetch positions for all new resources
+        newResources.forEach(r => fetchResourcePositions(r.resource_id));
+
         setIsResourcePickerOpen(false);
     };
 
@@ -321,12 +334,54 @@ function WorkorderModal({ isOpen, onClose, workorder, initialSlot, projects, res
         updated[index] = { ...updated[index], [field]: value };
 
         // When resource changes, fetch their positions and clear the position selection
+        // When resource changes
         if (field === 'resource_id' && value) {
-            updated[index].position_id = ''; // Reset position when resource changes
+            // Find the selected resource object to check qualifications
+            const selectedStaff = staffResources.find(r => String(r.id) === String(value));
+
+            // If the resource exists and HAS the current position in their profile, keep it. Otherwise reset.
+            const currentPositionId = updated[index].position_id;
+            const isQualified = selectedStaff?.positions?.some(p => String(p.position_id) === String(currentPositionId));
+
+            if (!isQualified) {
+                updated[index].position_id = '';
+            }
+            // Always fetch positions for the new resource so the dropdown updates
             fetchResourcePositions(value);
         }
 
         setAssignedResources(updated);
+    };
+
+    const handleDragStart = (e, index) => {
+        e.dataTransfer.setData('index', index);
+        e.currentTarget.classList.add('dragging');
+    };
+
+    const handleDragEnd = (e) => {
+        e.currentTarget.classList.remove('dragging');
+    };
+
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        e.currentTarget.classList.add('drag-over');
+    };
+
+    const handleDragLeave = (e) => {
+        e.currentTarget.classList.remove('drag-over');
+    };
+
+    const handleDrop = (e, toIndex) => {
+        e.preventDefault();
+        e.currentTarget.classList.remove('drag-over');
+        const fromIndex = parseInt(e.dataTransfer.getData('index'));
+
+        if (fromIndex === toIndex) return;
+
+        const newResources = [...assignedResources];
+        const [movedItem] = newResources.splice(fromIndex, 1);
+        newResources.splice(toIndex, 0, movedItem);
+        setAssignedResources(newResources);
     };
 
     // Calculate cost with overtime
@@ -522,19 +577,26 @@ function WorkorderModal({ isOpen, onClose, workorder, initialSlot, projects, res
         );
     };
 
+    const handleKeyDown = (e) => {
+        // Prevent form submission on Enter key press
+        if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+            e.preventDefault();
+        }
+    };
+
     return (
         <DraggableModal
             isOpen={isOpen}
             onClose={onClose}
             title={workorder?.id ? 'Edit Workorder' : 'New Workorder'}
             hasUnsavedChanges={isDirty}
-            initialSize={{ width: 850, height: 700 }}
+            initialSize={{ width: 1100, height: 850 }}
             className="workorder-modal-wrapper"
         >
 
             {error && <div className="error-message">{error}</div>}
 
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} onKeyDown={handleKeyDown}>
                 {/* Project Selection */}
                 <div className="header-compact-grid">
                     <div className="compact-row">
@@ -556,6 +618,7 @@ function WorkorderModal({ isOpen, onClose, workorder, initialSlot, projects, res
                                 onChange={(e) => setFormData({ ...formData, project_id: e.target.value })}
                                 required
                                 className="input-compact"
+                                disabled={workorder && !workorder.id && workorder.project_id} // Disable if creating new from project context
                             >
                                 <option value="">Select Project...</option>
                                 {projects.map(project => (
@@ -692,7 +755,14 @@ function WorkorderModal({ isOpen, onClose, workorder, initialSlot, projects, res
                                 📃 Multi-Select
                             </button>
                             <button type="button" className="btn-primary-small" onClick={handleAddResource}>
-                                + Add Resource
+                                <span style={{ marginRight: '5px' }}>+</span> Add Resource
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-secondary-small"
+                                onClick={handleAddRequirement}
+                            >
+                                <span style={{ marginRight: '5px' }}>+</span> Add Requirement
                             </button>
                         </div>
                     </div>
@@ -709,23 +779,50 @@ function WorkorderModal({ isOpen, onClose, workorder, initialSlot, projects, res
 
                                 return (
                                     <React.Fragment key={index}>
-                                        <div className="resource-row-compact">
+                                        <div
+                                            className="resource-row-compact draggable-resource"
+                                            draggable
+                                            onDragStart={(e) => handleDragStart(e, index)}
+                                            onDragEnd={handleDragEnd}
+                                            onDragOver={handleDragOver}
+                                            onDragLeave={handleDragLeave}
+                                            onDrop={(e) => handleDrop(e, index)}
+                                        >
+                                            <div className="col-drag-handle">
+                                                <div className="drag-handle-icon">⠿</div>
+                                            </div>
                                             <div className="col-resource">
+                                                {!resource.resource_id && resource.position_id && (
+                                                    <div className="open-req-icon" title="Open Requirement">⚠️</div>
+                                                )}
                                                 <select
                                                     value={resource.resource_id}
                                                     onChange={(e) => handleResourceChange(index, 'resource_id', e.target.value)}
                                                 >
-                                                    <option value="">Resource...</option>
-                                                    {staffResources.map(r => (
-                                                        <option key={r.id} value={r.id}>{r.name}</option>
-                                                    ))}
+                                                    <option value="">
+                                                        {resource.position_id ? '* Open Requirement *' : 'Select Resource...'}
+                                                    </option>
+                                                    {staffResources
+                                                        .filter(r => {
+                                                            // If no position selected, show all
+                                                            if (!resource.position_id) return true;
+                                                            // If currently selected, always show
+                                                            if (Number(r.id) === Number(resource.resource_id)) return true;
+
+                                                            // Filter based on qualifications
+                                                            // Each resource has .positions array: [{position_id: 1, group_id: 2}, ...]
+                                                            if (!r.positions || !Array.isArray(r.positions)) return true; // Fallback if data missing
+                                                            return r.positions.some(p => Number(p.position_id) === Number(resource.position_id));
+                                                        })
+                                                        .map(r => (
+                                                            <option key={r.id} value={r.id}>{r.name}</option>
+                                                        ))}
                                                 </select>
                                             </div>
                                             <div className="col-position">
                                                 <select
                                                     value={resource.position_id}
                                                     onChange={(e) => handleResourceChange(index, 'position_id', e.target.value)}
-                                                    disabled={!resource.resource_id}
                                                 >
                                                     <option value="">Position...</option>
                                                     {availablePositions.map(p => (
@@ -847,6 +944,54 @@ function WorkorderModal({ isOpen, onClose, workorder, initialSlot, projects, res
 
                 /* --- GLOBAL FORM STYLES --- */
                 
+                .draggable-resource {
+                    cursor: grab;
+                    transition: all 0.2s ease;
+                }
+                
+                .draggable-resource.dragging {
+                    opacity: 0.5;
+                    cursor: grabbing;
+                }
+                
+                .draggable-resource.drag-over {
+                    background: rgba(59, 130, 246, 0.05);
+                    border-top: 2px solid var(--accent-primary) !important;
+                }
+                
+                .col-drag-handle {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 30px;
+                    padding-left: 5px;
+                }
+                
+                .drag-handle-icon {
+                    color: var(--text-muted);
+                    font-size: 1.1rem;
+                    user-select: none;
+                    opacity: 0.5;
+                }
+                
+                .draggable-resource:hover .drag-handle-icon {
+                    opacity: 1;
+                    color: var(--text-secondary);
+                }
+
+                .open-req-icon {
+                    position: absolute;
+                    left: -22px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    font-size: 1rem;
+                    pointer-events: none;
+                }
+                
+                .col-resource {
+                    position: relative;
+                }
+
                 label {
                     display: block;
                     font-size: 0.75rem;
@@ -1010,14 +1155,14 @@ function WorkorderModal({ isOpen, onClose, workorder, initialSlot, projects, res
                 
                 .resource-row-compact {
                     display: grid;
-                    grid-template-columns: 200px 140px 180px 100px 90px 40px;
+                    grid-template-columns: 30px 200px 140px 180px 100px 90px 40px;
                     gap: 0.75rem;
                     align-items: center;
                     padding: 0.6rem 0.75rem;
                     background: #1e293b;
                     border-bottom: 1px solid #334155;
                     font-size: 0.85rem;
-                    min-width: 750px; /* Enforce minimum internal width for the grid */
+                    min-width: 880px; /* Enforce minimum internal width for the grid */
                 }
                 .resource-row-compact:last-child { border-bottom: none; }
                 

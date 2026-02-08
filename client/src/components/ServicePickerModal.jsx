@@ -52,14 +52,28 @@ export function ServicePickerModal({ isOpen, onClose, onSelect, services = [] })
                         Select a service to add its positions to the workorder.
                     </p>
 
-                    <div className="search-box">
+                    <div className="search-box relative">
                         <input
                             type="text"
                             placeholder="Search services..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                }
+                            }}
                             autoFocus
+                            className="pr-10"
                         />
+                        {searchQuery && (
+                            <button
+                                onClick={() => setSearchQuery('')}
+                                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                            >
+                                ✕
+                            </button>
+                        )}
                     </div>
 
                     <div className="services-list">

@@ -6,10 +6,11 @@ export function Sidebar({ activeView, onViewChange, onAction, positionGroups = [
     const { user, logout } = useAuth();
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [isManagementOpen, setIsManagementOpen] = useState(true);
+    const [isResourceMgmtOpen, setIsResourceMgmtOpen] = useState(true);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(true);
     const [isSchedulingOpen, setIsSchedulingOpen] = useState(true);
     const [isProjectMgmtOpen, setIsProjectMgmtOpen] = useState(true);
-    const [areResourcesOpen, setAreResourcesOpen] = useState(false);
-    const [expandedProjectIds, setExpandedProjectIds] = useState([]);
+
 
     // Search State
     const [searchQuery, setSearchQuery] = useState('');
@@ -28,14 +29,6 @@ export function Sidebar({ activeView, onViewChange, onAction, positionGroups = [
             console.error("Search failed:", error);
         }
     }, []);
-
-    const toggleProject = (projectId) => {
-        setExpandedProjectIds(prev =>
-            prev.includes(projectId)
-                ? prev.filter(id => id !== projectId)
-                : [...prev, projectId]
-        );
-    };
 
     const toggleSidebar = () => setIsCollapsed(!isCollapsed);
 
@@ -108,79 +101,12 @@ export function Sidebar({ activeView, onViewChange, onAction, positionGroups = [
                     )}
                     {(isProjectMgmtOpen || isCollapsed) && (
                         <div className="space-y-1">
-                            {!isCollapsed ? (
-                                <div className="ml-1 relative border-l border-white/5 pl-2 animate-fadeIn">
-                                    {projects.length === 0 ? (
-                                        <div className="text-xs text-slate-500 italic px-2 py-1">No projects</div>
-                                    ) : (
-                                        projects.map(project => (
-                                            <div key={project.id} className="mb-1">
-                                                <div className="w-full flex items-center justify-between px-2 py-1.5 rounded-md text-left transition-all duration-200 text-slate-400 hover:text-white hover:bg-white/5 group">
-                                                    <button
-                                                        onClick={() => onAction(`view-project-${project.id}`)}
-                                                        className="flex items-center gap-2 truncate flex-1 text-left"
-                                                        title="View Project Details"
-                                                    >
-                                                        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: project.color || '#3B82F6' }}></span>
-                                                        <span className="text-xs font-medium truncate hover:text-blue-300 transition-colors uppercase tracking-tight">{project.title}</span>
-                                                    </button>
-                                                    <button
-                                                        onClick={(e) => { e.stopPropagation(); toggleProject(project.id); }}
-                                                        className="p-1 hover:bg-white/10 rounded flex-shrink-0"
-                                                    >
-                                                        <span className={`text-[10px] transition-transform duration-200 block ${expandedProjectIds.includes(project.id) ? '' : '-rotate-90'}`}>▾</span>
-                                                    </button>
-                                                </div>
-
-                                                {expandedProjectIds.includes(project.id) && (
-                                                    <div className="ml-4 pl-2 border-l border-white/5 mt-0.5 space-y-0.5">
-                                                        {project.workorders && project.workorders.length > 0 ? (
-                                                            project.workorders.map(wo => (
-                                                                <button
-                                                                    key={wo.id}
-                                                                    onClick={() => onAction(`edit-workorder-${wo.id}`)}
-                                                                    className="w-full flex items-center gap-2 px-2 py-1 rounded-md text-left text-slate-500 hover:text-blue-300 hover:bg-white/5 transition-colors"
-                                                                    title={wo.title}
-                                                                >
-                                                                    <span className="text-[10px]">📄</span>
-                                                                    <span className="text-[11px] truncate">{wo.title}</span>
-                                                                </button>
-                                                            ))
-                                                        ) : (
-                                                            <div className="px-2 py-1 text-[10px] text-slate-600 italic">No workorders</div>
-                                                        )}
-                                                        <button
-                                                            onClick={() => onAction(`new-workorder-project-${project.id}`)}
-                                                            className="w-full px-2 py-1 text-[10px] text-blue-500/70 hover:text-blue-400 text-left hover:underline"
-                                                        >
-                                                            + Add Workorder
-                                                        </button>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                            ) : (
-                                // Collapsed view just shows icons/actions
-                                <SidebarItem
-                                    id="all-projects"
-                                    label="All Projects"
-                                    icon="📂"
-                                    isAction
-                                    onClick={() => setIsCollapsed(false)} // Expand to see details
-                                    isCollapsed={isCollapsed}
-                                />
-                            )}
-
-                            <div className="my-2 border-t border-white/5 mx-2"></div>
-
                             <SidebarItem
-                                id="new-project"
-                                label="New Project"
-                                icon="➕"
-                                isAction
-                                onClick={() => handleAction('new-project')}
+                                id="projects"
+                                label="Projects"
+                                icon="📂"
+                                active={activeView === 'projects'}
+                                onClick={() => onViewChange('projects')}
                                 isCollapsed={isCollapsed}
                             />
                         </div>
@@ -228,9 +154,20 @@ export function Sidebar({ activeView, onViewChange, onAction, positionGroups = [
                                                     setSearchResults({ projects: [], workorders: [], resources: [] });
                                                 }
                                             }}
-                                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all"
+                                            className="w-full bg-white/5 border border-white/10 rounded-lg pl-8 pr-8 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all"
                                         />
-                                        <span className="absolute right-2 top-1.5 text-slate-500 text-xs">🔍</span>
+                                        <span className="absolute left-2.5 top-1.5 text-slate-500 text-xs">🔍</span>
+                                        {searchQuery && (
+                                            <button
+                                                onClick={() => {
+                                                    setSearchQuery('');
+                                                    setSearchResults({ projects: [], workorders: [], resources: [] });
+                                                }}
+                                                className="absolute right-2.5 top-1.5 text-slate-500 hover:text-slate-300 transition-colors text-[10px]"
+                                            >
+                                                ✕
+                                            </button>
+                                        )}
                                     </div>
 
                                     {/* Search Results Dropdown */}
@@ -244,7 +181,7 @@ export function Sidebar({ activeView, onViewChange, onAction, positionGroups = [
                                                     {searchResults.projects.map(p => (
                                                         <button
                                                             key={p.id}
-                                                            onClick={() => { toggleProject(p.id); setSearchQuery(''); }}
+                                                            onClick={() => { onAction(`view-project-${p.id}`); setSearchQuery(''); }}
                                                             className="w-full text-left text-xs text-blue-400 hover:text-blue-300 py-1 truncate"
                                                         >
                                                             {p.title}
@@ -298,60 +235,41 @@ export function Sidebar({ activeView, onViewChange, onAction, positionGroups = [
                                     )}
                                 </div>
                             )}
+                        </div>
+                    )}
+                </div>
 
+                {/* RESOURCE MANAGEMENT SECTION */}
+                <div className="mb-6">
+                    {!isCollapsed && (
+                        <button
+                            onClick={() => setIsResourceMgmtOpen(!isResourceMgmtOpen)}
+                            className="w-full flex items-center justify-between px-3 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-widest hover:text-slate-300 transition-colors"
+                        >
+                            <span>Resource Management</span>
+                            <span className={`transition-transform duration-200 ${isResourceMgmtOpen ? '' : '-rotate-90'}`}>▾</span>
+                        </button>
+                    )}
+                    {(isResourceMgmtOpen || isCollapsed) && (
+                        <div className="space-y-1">
                             {/* Resources Folder (Collapsible if expanded) */}
-                            {!isCollapsed ? (
-                                <div className="ml-1 relative border-l border-white/5 pl-2">
-                                    <button
-                                        onClick={() => setAreResourcesOpen(!areResourcesOpen)}
-                                        className={`w-full flex items-center justify-between px-2 py-2 rounded-lg text-left transition-all duration-200 text-slate-400 hover:text-white hover:bg-white/5 group`}
-                                    >
-                                        <div className="flex items-center gap-3">
-                                            <span className="text-lg">👥</span>
-                                            <span className="font-medium text-sm">Resources</span>
-                                        </div>
-                                        <span className={`text-xs transition-transform duration-200 ${areResourcesOpen ? '' : '-rotate-90'}`}>▾</span>
-                                    </button>
-
-                                    {areResourcesOpen && (
-                                        <div className="mt-1 space-y-0.5 animate-fadeIn">
-                                            <SidebarSubItem
-                                                label="All Resources"
-                                                active={activeView === 'resources' && !selectedGroupId}
-                                                onClick={() => onAction('view-all-resources')}
-                                            />
-                                            {positionGroups.map(group => (
-                                                <SidebarSubItem
-                                                    key={group.id}
-                                                    label={group.name}
-                                                    color={group.color}
-                                                    active={activeView === 'resources' && selectedGroupId === group.id}
-                                                    onClick={() => onAction(`filter-group-${group.id}`)}
-                                                />
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            ) : (
-                                // Collapsed View: Just show icon for overall resources
-                                <SidebarItem
-                                    id="resources"
-                                    label="Resources"
-                                    icon="👥"
-                                    active={activeView === 'resources'}
-                                    onClick={() => onAction('view-all-resources')}
-                                    isCollapsed={isCollapsed}
-                                    adminOnly
-                                    userRole={user?.role}
-                                />
-                            )}
+                            <SidebarItem
+                                id="resources"
+                                label="Resources"
+                                icon="👥"
+                                active={activeView === 'resources'}
+                                onClick={() => onAction('view-all-resources')}
+                                isCollapsed={isCollapsed}
+                                adminOnly
+                                userRole={user?.role}
+                            />
 
                             <SidebarItem
-                                id="groups"
-                                label="Groups & Positions"
-                                icon="⚙️"
-                                isAction
-                                onClick={() => handleAction('manage-groups')}
+                                id="hierarchy"
+                                label="Hierarchy"
+                                icon="🏗️"
+                                active={activeView === 'hierarchy'}
+                                onClick={() => onViewChange('hierarchy')}
                                 isCollapsed={isCollapsed}
                                 adminOnly
                                 userRole={user?.role}
@@ -366,6 +284,23 @@ export function Sidebar({ activeView, onViewChange, onAction, positionGroups = [
                                 adminOnly
                                 userRole={user?.role}
                             />
+                        </div>
+                    )}
+                </div>
+
+                {/* SETTINGS SECTION */}
+                <div className="mb-6">
+                    {!isCollapsed && (
+                        <button
+                            onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+                            className="w-full flex items-center justify-between px-3 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-widest hover:text-slate-300 transition-colors"
+                        >
+                            <span>Settings</span>
+                            <span className={`transition-transform duration-200 ${isSettingsOpen ? '' : '-rotate-90'}`}>▾</span>
+                        </button>
+                    )}
+                    {(isSettingsOpen || isCollapsed) && (
+                        <div className="space-y-1">
                             <SidebarItem
                                 id="users"
                                 label="Users"

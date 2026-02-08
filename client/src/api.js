@@ -665,6 +665,192 @@ export const api = {
         }
         return res.json();
     },
+
+    duplicateService: async (id) => {
+        const res = await fetch(`${API_BASE}/services/${id}/duplicate`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to duplicate service');
+        }
+        return res.json();
+    },
+
+    // ============================================
+    // Groups (Hierarchy)
+    // ============================================
+    getGroups: async (filters = {}) => {
+        const params = new URLSearchParams(filters);
+        const res = await fetch(`${API_BASE}/groups?${params}`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to fetch groups');
+        return res.json();
+    },
+
+    getGroup: async (id) => {
+        const res = await fetch(`${API_BASE}/groups/${id}`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to fetch group');
+        return res.json();
+    },
+
+    createGroup: async (data) => {
+        const res = await fetch(`${API_BASE}/groups`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to create group');
+        }
+        return res.json();
+    },
+
+    updateGroup: async (id, data) => {
+        const res = await fetch(`${API_BASE}/groups/${id}`, {
+            method: 'PUT',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to update group');
+        }
+        return res.json();
+    },
+
+    deleteGroup: async (id) => {
+        const res = await fetch(`${API_BASE}/groups/${id}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to delete group');
+        }
+        return res.json();
+    },
+
+    // ============================================
+    // Categories (Hierarchy)
+    // ============================================
+    getCategories: async (filters = {}) => {
+        const params = new URLSearchParams(filters);
+        const res = await fetch(`${API_BASE}/categories?${params}`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to fetch categories');
+        return res.json();
+    },
+
+    getCategory: async (id) => {
+        const res = await fetch(`${API_BASE}/categories/${id}`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to fetch category');
+        return res.json();
+    },
+
+    createCategory: async (data) => {
+        const res = await fetch(`${API_BASE}/categories`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to create category');
+        }
+        return res.json();
+    },
+
+    updateCategory: async (id, data) => {
+        const res = await fetch(`${API_BASE}/categories/${id}`, {
+            method: 'PUT',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to update category');
+        }
+        return res.json();
+    },
+
+    deleteCategory: async (id) => {
+        const res = await fetch(`${API_BASE}/categories/${id}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to delete category');
+        }
+        return res.json();
+    },
+
+    // ============================================
+    // Types (Hierarchy)
+    // ============================================
+    getTypes: async (filters = {}) => {
+        const params = new URLSearchParams(filters);
+        const res = await fetch(`${API_BASE}/types?${params}`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to fetch types');
+        return res.json();
+    },
+
+    getType: async (id) => {
+        const res = await fetch(`${API_BASE}/types/${id}`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to fetch type');
+        return res.json();
+    },
+
+    createType: async (data) => {
+        const res = await fetch(`${API_BASE}/types`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to create type');
+        }
+        return res.json();
+    },
+
+    updateType: async (id, data) => {
+        const res = await fetch(`${API_BASE}/types/${id}`, {
+            method: 'PUT',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to update type');
+        }
+        return res.json();
+    },
+
+    deleteType: async (id) => {
+        const res = await fetch(`${API_BASE}/types/${id}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to delete type');
+        }
+        return res.json();
+    },
 };
 
 export default api;

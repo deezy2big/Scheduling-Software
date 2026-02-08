@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Calendar, dateFnsLocalizer, Views } from 'react-big-calendar';
 import { format, parse, startOfWeek, getDay, addDays, isSameDay, startOfMonth, endOfMonth, differenceInMinutes, addMinutes, startOfDay, getWeek, endOfWeek, eachDayOfInterval, isSameMonth, addMonths, subMonths, isBefore, isAfter } from 'date-fns';
 import { enUS } from 'date-fns/locale/en-US';
@@ -175,7 +175,7 @@ const MiniCalendar = ({ selectedDates, onSelect, onClose }) => {
     );
 };
 
-export default function Scheduler({ sidebarAction, onDataChange }) {
+export default function Scheduler({ sidebarAction, onDataChange, onProjectCreated }) {
     const [events, setEvents] = useState([]);
     const [resources, setResources] = useState([]);
     const [positions, setPositions] = useState([]);
@@ -188,6 +188,9 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
     // Filter state
     const [selectedGroups, setSelectedGroups] = useState([]);
     const [filterPanelOpen, setFilterPanelOpen] = useState(true);
+
+    // Schedule Book tabs state
+    const [activeScheduleBook, setActiveScheduleBook] = useState('all');
 
     // Date range filter
     const [dateRangeStart, setDateRangeStart] = useState('');
@@ -202,6 +205,19 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
 
     // Collapsed groups state
     const [collapsedGroups, setCollapsedGroups] = useState({});
+
+    // Group drag state
+    const [draggedGroupId, setDraggedGroupId] = useState(null);
+    const [dragOverGroupId, setDragOverGroupId] = useState(null);
+    const [groupOrder, setGroupOrder] = useState(() => {
+        // Initialize from localStorage if available
+        try {
+            const saved = localStorage.getItem('scheduler-group-order');
+            return saved ? JSON.parse(saved) : [];
+        } catch {
+            return [];
+        }
+    });
 
     // Modal state
     const [projectModalOpen, setProjectModalOpen] = useState(false);
@@ -225,11 +241,11 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
 
     const fetchData = useCallback(async () => {
         try {
-            const [resResources, resProjects, resPositions, resPositionGroups, resWorkorders] = await Promise.all([
+            const [resResources, resProjects, resPositions, resCategories, resWorkorders] = await Promise.all([
                 api.getResources({ status: 'ACTIVE' }),
                 api.getProjects(),
                 api.getPositions(),
-                api.getPositionGroups(),
+                api.getCategories(),
                 api.getWorkorders()
             ]);
 
@@ -242,8 +258,15 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
             // Convert workorder resources to calendar events
             const formattedEvents = [];
             resWorkorders.forEach(wo => {
+                // Check if workorder has any open requirements (unassigned positions)
+                // We check if any resource entry has a position_id but no resource_id
+                const hasOpenRequirements = wo.resources && wo.resources.some(r => !r.resource_id && r.position_id);
+
                 if (wo.resources) {
                     wo.resources.forEach(resource => {
+                        // Only create events for assigned resources
+                        if (!resource.resource_id) return;
+
                         formattedEvents.push({
                             id: `wo-${wo.id}-${resource.id}`,
                             workorderId: wo.id,
@@ -257,6 +280,7 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
                             end: new Date(resource.end_time),
                             color: wo.color || '#3B82F6',
                             workorder: wo,
+                            hasOpenRequirements: hasOpenRequirements,
                         });
                     });
                 }
@@ -266,16 +290,48 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
             setEvents(formattedEvents);
             setProjects(resProjects);
             setPositions(resPositions);
-            setPositionGroups(resPositionGroups);
-
-            if (selectedGroups.length === 0 && resPositionGroups.length > 0) {
-                setSelectedGroups(resPositionGroups.map(g => g.id));
-            }
+            setPositionGroups(resCategories);
         } catch (error) {
             console.error("Error fetching data", error);
             showToast('Failed to load data', 'error');
         }
-    }, [selectedGroups.length]);
+    }, []);
+
+    // Initialize selected groups only once when groups are loaded
+    useEffect(() => {
+        if (selectedGroups.length === 0 && positionGroups.length > 0) {
+            // Check if this is the first load (to avoid overriding user's manual "deselect all")
+            // We can check if previous state was empty because of initialization vs user action.
+            // But simplify: Only default to All if we have groups and haven't touched selection yet?
+            // Actually, the user COMPLAINED about it resetting when they selected None.
+            // So we should ONLY initialize if we believe it's the app start.
+            // Since we don't have a "hasInitialized" flag in state, we can assume if the array is empty 
+            // AND we just loaded groups, we might want to set them. 
+            // BUT, if the user explicitly cleared them, we don't want to reset.
+            // The previous bug was that fetchData was called, saw 0 selected, and Reset them.
+            // By moving this out of fetchData, we solve the recursion.
+            // But we still need to know: should we select all on load?
+            // Let's use a ref to track if we've done the initial populate.
+        }
+    }, [positionGroups]); // We'll rely on the ref approach in the next chunk or handle logic differently.
+
+    // Better Approach: Use a ref to track initialization
+    const groupsInitializedRef = React.useRef(false);
+
+    useEffect(() => {
+        if (!groupsInitializedRef.current && positionGroups.length > 0) {
+            setSelectedGroups(positionGroups.map(g => g.id));
+            groupsInitializedRef.current = true;
+        }
+    }, [positionGroups]);
+
+    // Handle schedule book tab changes
+    useEffect(() => {
+        if (activeScheduleBook === 'all') {
+            // When "All Resources" is selected, show all groups
+            setSelectedGroups(positionGroups.map(g => g.id));
+        }
+    }, [activeScheduleBook, positionGroups]);
 
     useEffect(() => {
         fetchData();
@@ -333,14 +389,14 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
         if (r.type !== 'STAFF') return true;
         if (selectedGroups.length === 0) return false;
 
-        let positions = r.positions;
-        if (typeof positions === 'string') {
-            try { positions = JSON.parse(positions); } catch (e) { positions = []; }
+        let types = r.types;
+        if (typeof types === 'string') {
+            try { types = JSON.parse(types); } catch (e) { types = []; }
         }
-        if (!Array.isArray(positions)) positions = [];
-        if (positions.length === 0) return true;
+        if (!Array.isArray(types)) types = [];
+        if (types.length === 0) return true;
 
-        return positions.some(p => selectedGroups.map(Number).includes(Number(p.group_id)));
+        return types.some(t => selectedGroups.map(Number).includes(Number(t.category_id)));
     });
 
     const groupedResources = useMemo(() => {
@@ -348,11 +404,11 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
         const unassigned = [];
 
         filteredResources.forEach(resource => {
-            let positions = resource.positions;
-            if (typeof positions === 'string') {
-                try { positions = JSON.parse(positions); } catch (e) { positions = []; }
+            let types = resource.types;
+            if (typeof types === 'string') {
+                try { types = JSON.parse(types); } catch (e) { types = []; }
             }
-            if (!Array.isArray(positions)) positions = [];
+            if (!Array.isArray(types)) types = [];
 
             if (resource.type !== 'STAFF') {
                 const typeKey = resource.type || 'OTHER';
@@ -366,22 +422,22 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
                     };
                 }
                 grouped[`type_${typeKey}`].resources.push(resource);
-            } else if (positions.length === 0) {
+            } else if (types.length === 0) {
                 unassigned.push(resource);
             } else {
-                positions.forEach(pos => {
-                    const groupId = pos.group_id;
-                    const group = positionGroups.find(g => g.id === groupId);
-                    if (group && !grouped[groupId]) {
-                        grouped[groupId] = {
-                            id: groupId,
-                            name: group.name,
-                            color: group.color || '#3b82f6',
+                types.forEach(t => {
+                    const categoryId = t.category_id;
+                    const category = positionGroups.find(c => c.id === categoryId);
+                    if (category && !grouped[categoryId]) {
+                        grouped[categoryId] = {
+                            id: categoryId,
+                            name: category.name,
+                            color: category.color || '#3b82f6',
                             resources: [],
                         };
                     }
-                    if (grouped[groupId] && !grouped[groupId].resources.find(r => r.id === resource.id)) {
-                        grouped[groupId].resources.push(resource);
+                    if (grouped[categoryId] && !grouped[categoryId].resources.find(r => r.id === resource.id)) {
+                        grouped[categoryId].resources.push(resource);
                     }
                 });
             }
@@ -392,6 +448,45 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
         }
         return grouped;
     }, [filteredResources, positionGroups]);
+
+    // Initialize group order when groupedResources changes
+    useEffect(() => {
+        const groupIds = Object.keys(groupedResources);
+        // Don't update if groupedResources is empty (still loading)
+        if (groupIds.length === 0) return;
+
+        setGroupOrder(prevOrder => {
+            // If we have a saved order, merge it with current groups
+            if (prevOrder.length > 0) {
+                // Keep existing order for groups that still exist, add new groups at the end
+                const existingInOrder = prevOrder.filter(id => groupIds.includes(String(id)));
+                const newGroups = groupIds.filter(id => !prevOrder.map(String).includes(String(id)));
+                return [...existingInOrder, ...newGroups];
+            }
+            // No saved order, use default
+            return groupIds;
+        });
+    }, [groupedResources]);
+
+    // Persist group order to localStorage (only when we have real data)
+    const groupOrderInitialized = useRef(false);
+    useEffect(() => {
+        // Only save after we've had at least one valid order
+        if (groupOrder.length > 0) {
+            groupOrderInitialized.current = true;
+            localStorage.setItem('scheduler-group-order', JSON.stringify(groupOrder));
+        }
+    }, [groupOrder]);
+
+    // Create ordered groups array for rendering
+    const orderedGroups = useMemo(() => {
+        return groupOrder
+            .map(id => {
+                // Handle both string and number keys
+                return groupedResources[id] || groupedResources[String(id)] || groupedResources[Number(id)];
+            })
+            .filter(Boolean); // Filter out any that don't exist
+    }, [groupOrder, groupedResources]);
 
     const getGridDays = () => {
         if (selectedDates.length > 0) {
@@ -407,8 +502,6 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
             start = date; end = date;
         } else if (view === Views.MONTH) {
             start = startOfMonth(date); end = endOfMonth(date);
-        } else if (view === Views.WORK_WEEK) {
-            start = startOfWeek(date, { weekStartsOn: 1 }); end = addDays(start, 4);
         } else {
             start = startOfWeek(date, { weekStartsOn: 0 }); end = addDays(start, 6);
         }
@@ -426,6 +519,69 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
 
     const toggleGroupCollapse = (groupId) => {
         setCollapsedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }));
+    };
+
+    // Group drag handlers
+    const handleGroupDragStart = (e, groupId) => {
+        e.stopPropagation();
+        const stringId = String(groupId);
+        setDraggedGroupId(stringId);
+        e.dataTransfer.effectAllowed = 'move';
+    };
+
+    const handleGroupDragOver = (e, groupId) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const stringId = String(groupId);
+        if (draggedGroupId && draggedGroupId !== stringId) {
+            setDragOverGroupId(stringId);
+        }
+    };
+
+    const handleGroupDragLeave = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragOverGroupId(null);
+    };
+
+    const handleGroupDrop = (e, targetGroupId) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const targetId = String(targetGroupId);
+        const draggedId = draggedGroupId;
+
+        if (!draggedId || draggedId === targetId) {
+            setDraggedGroupId(null);
+            setDragOverGroupId(null);
+            return;
+        }
+
+        // Reorder the groups
+        setGroupOrder(prevOrder => {
+            const newOrder = [...prevOrder];
+            const draggedIndex = newOrder.findIndex(id => String(id) === draggedId);
+            const targetIndex = newOrder.findIndex(id => String(id) === targetId);
+
+            if (draggedIndex !== -1 && targetIndex !== -1) {
+                // Remove from old position and insert at new position
+                const [removed] = newOrder.splice(draggedIndex, 1);
+                newOrder.splice(targetIndex, 0, removed);
+
+                const draggedGroup = groupedResources[draggedId] || groupedResources[Number(draggedId)];
+                showToast(`Moved ${draggedGroup?.name || 'group'} to new position`, 'success');
+            }
+
+            return newOrder;
+        });
+
+        setDraggedGroupId(null);
+        setDragOverGroupId(null);
+    };
+
+    const handleGroupDragEnd = () => {
+        setDraggedGroupId(null);
+        setDragOverGroupId(null);
     };
 
     const handleSelectSlot = ({ resourceId, start, end }) => {
@@ -542,10 +698,14 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
         setWorkorderModalOpen(true);
     };
 
-    const handleSaveProject = () => {
+    const handleSaveProject = (newProjectId) => {
         fetchData();
         if (onDataChange) onDataChange();
         showToast('Project saved successfully');
+        // If a new project was created, trigger navigation to its details
+        if (newProjectId && onProjectCreated) {
+            onProjectCreated(newProjectId);
+        }
     };
 
     const handleSaveWorkorder = () => {
@@ -561,21 +721,36 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
     };
 
     const toggleGroup = (groupId) => {
-        setSelectedGroups(prev => prev.includes(groupId) ? prev.filter(id => id !== groupId) : [...prev, groupId]);
+        setSelectedGroups(prev => {
+            const numGroupId = Number(groupId);
+            const numPrev = prev.map(Number);
+            if (numPrev.includes(numGroupId)) {
+                return prev.filter(id => Number(id) !== numGroupId);
+            } else {
+                return [...prev, groupId];
+            }
+        });
     };
 
-    const selectAllGroups = () => setSelectedGroups(positionGroups.map(g => g.id));
+    const selectAllGroups = () => {
+        if (activeScheduleBook === 'all') {
+            setSelectedGroups(positionGroups.map(g => g.id));
+        } else {
+            // If a specific schedule book is active, only select that one
+            setSelectedGroups([activeScheduleBook]);
+        }
+    };
     const clearAllGroups = () => setSelectedGroups([]);
 
     const navigatePrevious = () => {
         if (view === Views.DAY) setDate(addDays(date, -1));
-        else if (view === Views.WEEK || view === Views.WORK_WEEK) setDate(addDays(date, -7));
+        else if (view === Views.WEEK) setDate(addDays(date, -7));
         else setDate(addDays(startOfMonth(date), -1));
     };
 
     const navigateNext = () => {
         if (view === Views.DAY) setDate(addDays(date, 1));
-        else if (view === Views.WEEK || view === Views.WORK_WEEK) setDate(addDays(date, 7));
+        else if (view === Views.WEEK) setDate(addDays(date, 7));
         else setDate(addDays(endOfMonth(date), 1));
     };
 
@@ -646,7 +821,7 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
         <div className="scheduler-container">
             <div className={`filter-panel ${filterPanelOpen ? 'open' : 'closed'}`}>
                 <div className="filter-header">
-                    <h3>Position Groups</h3>
+                    <h3>{activeScheduleBook === 'all' ? 'Position Groups' : positionGroups.find(g => g.id === activeScheduleBook)?.name || 'Position Groups'}</h3>
                     <div className="filter-header-actions">
                         <button className="icon-btn settings-btn" onClick={() => setGroupManagerOpen(true)} title="Manage Groups">⚙️</button>
                         <button className="toggle-btn" onClick={() => setFilterPanelOpen(!filterPanelOpen)}>
@@ -661,14 +836,16 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
                             <button onClick={clearAllGroups}>None</button>
                         </div>
                         <div className="group-list">
-                            {positionGroups.map(group => (
-                                <label key={group.id} className="group-item">
-                                    <input type="checkbox" checked={selectedGroups.includes(group.id)} onChange={() => toggleGroup(group.id)} />
-                                    <span className="group-color" style={{ background: group.color }} />
-                                    <span className="group-name">{group.name}</span>
-                                    <span className="group-count">{group.position_count}</span>
-                                </label>
-                            ))}
+                            {positionGroups
+                                .filter(group => activeScheduleBook === 'all' || group.id === activeScheduleBook)
+                                .map(group => (
+                                    <label key={group.id} className="group-item">
+                                        <input type="checkbox" checked={selectedGroups.includes(group.id)} onChange={() => toggleGroup(group.id)} />
+                                        <span className="group-color" style={{ background: group.color }} />
+                                        <span className="group-name">{group.name}</span>
+                                        <span className="group-count">{group.position_count}</span>
+                                    </label>
+                                ))}
                         </div>
                     </div>
                 )}
@@ -684,7 +861,7 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
 
                 <div className="controls-row">
                     <div className="date-navigation">
-                        <div className="date-selector-wrapper" style={{ position: 'relative', flex: 1 }}>
+                        <div className="date-selector-wrapper" style={{ position: 'relative', width: '300px' }}>
                             <button
                                 className="nav-btn date-trigger-btn"
                                 onClick={() => setIsCalendarOpen(!isCalendarOpen)}
@@ -713,7 +890,7 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
                         </div>
                     </div>
                     <div className="view-controls">
-                        {[Views.DAY, Views.WEEK, Views.WORK_WEEK, Views.MONTH].map(v => (
+                        {[Views.DAY, Views.WEEK, Views.MONTH].map(v => (
                             <button key={v} onClick={() => { setView(v); setSelectedDates([]); }} className={`view-btn ${view === v ? 'active' : ''}`}>
                                 {v.charAt(0).toUpperCase() + v.slice(1).replace('_', ' ')}
                             </button>
@@ -728,17 +905,84 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
                     </div>
                 </div>
 
+                {/* Schedule Book Tabs */}
+                <div className="schedule-book-tabs">
+                    <button
+                        className={`schedule-book-tab ${activeScheduleBook === 'all' ? 'active' : ''}`}
+                        onClick={() => setActiveScheduleBook('all')}
+                    >
+                        📚 All Resources
+                    </button>
+                    {positionGroups.map(group => (
+                        <button
+                            key={group.id}
+                            className={`schedule-book-tab ${activeScheduleBook === group.id ? 'active' : ''}`}
+                            onClick={() => {
+                                setActiveScheduleBook(group.id);
+                                // Auto-select this group in the filter
+                                setSelectedGroups([group.id]);
+                            }}
+                        >
+                            📋 {group.name}
+                        </button>
+                    ))}
+                </div>
+
                 {!focusedResourceId ? (
                     <div className="timeline-wrapper">
                         <div className={`timeline-grid ${isCompactMode ? 'compact-mode' : ''}`}>
                             <div className="timeline-header">
-                                <div className="timeline-corner"><div className="timezone-label">Pacific Time</div></div>
+                                <div className="timeline-corner">
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                            <button
+                                                onClick={() => {
+                                                    const newCollapsed = {};
+                                                    groupOrder.forEach(id => newCollapsed[id] = true);
+                                                    setCollapsedGroups(newCollapsed);
+                                                }}
+                                                style={{
+                                                    background: 'transparent',
+                                                    border: '1px solid rgba(148, 163, 184, 0.3)',
+                                                    color: '#94a3b8',
+                                                    padding: '4px 8px',
+                                                    borderRadius: '4px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '0.75rem',
+                                                    fontWeight: 500,
+                                                    transition: 'all 0.2s'
+                                                }}
+                                                title="Collapse All Groups"
+                                            >
+                                                ▶ All
+                                            </button>
+                                            <button
+                                                onClick={() => setCollapsedGroups({})}
+                                                style={{
+                                                    background: 'transparent',
+                                                    border: '1px solid rgba(148, 163, 184, 0.3)',
+                                                    color: '#94a3b8',
+                                                    padding: '4px 8px',
+                                                    borderRadius: '4px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '0.75rem',
+                                                    fontWeight: 500,
+                                                    transition: 'all 0.2s'
+                                                }}
+                                                title="Expand All Groups"
+                                            >
+                                                ▼ All
+                                            </button>
+                                        </div>
+                                        <div className="timezone-label">Pacific Time</div>
+                                    </div>
+                                </div>
                                 <div className="timeline-days">
                                     {gridDays.map(dayDate => (
                                         <div key={dayDate.toString()} className={`timeline-day ${isSameDay(dayDate, new Date()) ? 'today' : ''}`}>
                                             <div className="day-header-info">
-                                                <span className="week-label">Wk. {getWeek(dayDate)}</span>
                                                 <span className="day-label">{format(dayDate, 'EEE MMM d')}</span>
+                                                <span className="week-label">Wk. {getWeek(dayDate)}</span>
                                             </div>
                                             <div className="time-slots">
                                                 {Array.from({ length: DAY_END_HOUR - DAY_START_HOUR }).map((_, idx) => {
@@ -753,11 +997,20 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
                             </div>
 
                             <div className="timeline-body">
-                                {Object.values(groupedResources).map(group => (
+                                {orderedGroups.map(group => (
                                     <div key={group.id} className="resource-group">
-                                        <div className="group-header-row" onClick={() => toggleGroupCollapse(group.id)}>
-                                            <div className="group-header-cell">
-                                                <span className={`collapse-icon ${collapsedGroups[group.id] ? 'collapsed' : ''}`}>▼</span>
+                                        <div
+                                            className={`group-header-row ${dragOverGroupId === String(group.id) ? 'drag-over' : ''}`}
+                                            draggable={true}
+                                            onDragStart={(e) => handleGroupDragStart(e, group.id)}
+                                            onDragOver={(e) => handleGroupDragOver(e, group.id)}
+                                            onDragLeave={handleGroupDragLeave}
+                                            onDrop={(e) => handleGroupDrop(e, group.id)}
+                                            onDragEnd={handleGroupDragEnd}
+                                        >
+                                            <div className="group-header-cell" onClick={() => toggleGroupCollapse(group.id)}>
+                                                <span className="drag-handle" style={{ cursor: 'grab', marginRight: '8px', opacity: 0.5 }}>⠿</span>
+                                                <span className="collapse-icon">{collapsedGroups[group.id] ? '▶' : '▼'}</span>
                                                 <span className="group-indicator" style={{ backgroundColor: group.color }} />
                                                 <span className="group-name">{group.name}</span>
                                             </div>
@@ -779,8 +1032,8 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
                                                         <span className="resource-name" title={resource.name}>{resource.name}</span>
                                                         <div className="resource-positions">
                                                             {resource.type === 'STAFF' ? (
-                                                                resource.positions?.slice(0, 2).map(p => (
-                                                                    <span key={p.position_id} className="position-badge">{p.abbreviation || p.position_name?.substring(0, 3)}</span>
+                                                                resource.types?.slice(0, 2).map(t => (
+                                                                    <span key={t.type_id} className="position-badge">{t.abbreviation || t.type_name?.substring(0, 3)}</span>
                                                                 ))
                                                             ) : <span className="type-badge">{resource.type}</span>}
                                                         </div>
@@ -904,8 +1157,11 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
                                                                         <div key={evt.id} className="event-bar"
                                                                             style={{ ...calculateEventStyle(evt, dayDate, idx, dayEvents.length), backgroundColor: evt.color }}
                                                                             onClick={(e) => { e.stopPropagation(); handleSelectEvent({ workorder: evt.workorder }); }}
-                                                                            title={`${evt.title}\nJob ID: ${evt.workorderId}\n${format(evt.start, 'h:mm a')} - ${format(evt.end, 'h:mm a')}`}>
-                                                                            <span className="event-title">{evt.title}</span>
+                                                                            title={`${evt.title}\nJob ID: ${evt.workorderId}\n${format(evt.start, 'h:mm a')} - ${format(evt.end, 'h:mm a')}${evt.hasOpenRequirements ? '\n⚠️ Has Open Requirements' : ''}`}>
+                                                                            <span className="event-title">
+                                                                                {evt.hasOpenRequirements && <span className="event-warning-icon">⚠️ </span>}
+                                                                                {evt.title}
+                                                                            </span>
                                                                             <span className="event-subtitle">Job ID: {evt.workorderId}</span>
                                                                         </div>
                                                                     ));
@@ -982,8 +1238,8 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
                 .btn-secondary { background: transparent; color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); }
 
                 .controls-row { display: flex; align-items: stretch; gap: 12px; padding: 0.75rem 1.5rem; background: #111827; border-bottom: 1px solid rgba(148, 163, 184, 0.1); }
-                .date-navigation { display: flex; align-items: stretch; gap: 12px; flex: 1; }
-                .date-selector-wrapper { display: flex; flex: 1; }
+                .date-navigation { display: flex; align-items: stretch; gap: 12px; }
+                .date-selector-wrapper { display: flex; }
                 .date-trigger-btn { width: 100%; text-align: left; background: #1f2937; border: 1px solid #374151; color: #f3f4f6; padding: 0 16px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; font-size: 0.9rem; font-weight: 500; }
                 .date-trigger-btn:hover { background: #374151; }
                 
@@ -1047,12 +1303,38 @@ export default function Scheduler({ sidebarAction, onDataChange }) {
                 .events-container { position: absolute; inset: 4px 0; pointer-events: none; }
                 .event-bar { position: absolute; border-radius: 4px; padding: 4px 8px; color: white; cursor: pointer; z-index: 10; border: 1px solid rgba(255, 255, 255, 0.25); display: flex; flex-direction: column; justify-content: center; pointer-events: auto; box-sizing: border-box; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
                 .event-bar:hover { filter: brightness(1.15); z-index: 20; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
-                .event-title { font-size: 0.7rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+                .event-title { font-size: 0.7rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; display: flex; align-items: center; }
                 .event-subtitle { font-size: 0.6rem; opacity: 0.8; }
+                .event-warning-icon { font-size: 0.8em; margin-right: 4px; }
 
                 .calendar-wrapper { flex: 1; padding: 1rem; background: #1f2937; margin: 1rem; border-radius: 8px; }
                 .toast-container { position: fixed; top: 20px; right: 20px; z-index: 1000; }
                 .toast { padding: 10px 20px; border-radius: 6px; font-size: 0.85rem; color: white; background: #10b981; }
+
+                /* Compact Mode - Fit to Screen */
+                .timeline-grid.compact-mode { min-width: 100%; }
+                .timeline-grid.compact-mode .timeline-wrapper { overflow: hidden; }
+                .timeline-grid.compact-mode .timeline-day,
+                .timeline-grid.compact-mode .group-day-cell,
+                .timeline-grid.compact-mode .day-cell { min-width: 0; flex: 1; }
+                .timeline-grid.compact-mode .resource-row { height: 60px; }
+                .timeline-grid.compact-mode .group-header-row { height: 28px; }
+                .timeline-grid.compact-mode .day-header-info { padding: 4px; font-size: 0.7rem; }
+                .timeline-grid.compact-mode .week-label { font-size: 0.55rem; }
+                .timeline-grid.compact-mode .day-label { font-size: 0.7rem; }
+                .timeline-grid.compact-mode .time-slots { height: 16px; }
+                .timeline-grid.compact-mode .time-slot-header { font-size: 0.5rem; line-height: 16px; }
+                .timeline-grid.compact-mode .resource-name { font-size: 0.7rem; }
+                .timeline-grid.compact-mode .position-badge { font-size: 0.55rem; }
+                .timeline-grid.compact-mode .event-bar { padding: 2px 6px; }
+                .timeline-grid.compact-mode .event-title { font-size: 0.6rem; }
+                .timeline-grid.compact-mode .event-subtitle { font-size: 0.55rem; }
+
+                /* Schedule Book Tabs */
+                .schedule-book-tabs { display: flex; gap: 2px; background: #1f2937; padding: 0; border-bottom: 1px solid rgba(148, 163, 184, 0.2); overflow-x: auto; }
+                .schedule-book-tab { flex: 0 0 auto; padding: 12px 24px; background: #374151; color: #9ca3af; border: none; font-size: 0.9rem; font-weight: 500; cursor: pointer; transition: all 0.2s; white-space: nowrap; border-bottom: 3px solid transparent; }
+                .schedule-book-tab:hover { background: #4b5563; color: #e5e7eb; }
+                .schedule-book-tab.active { background: #1e293b; color: white; border-bottom-color: #3b82f6; box-shadow: inset 0 -3px 0 0 #3b82f6; }
             `}</style>
         </div>
     );

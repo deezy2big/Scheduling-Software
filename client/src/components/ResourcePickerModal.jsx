@@ -20,6 +20,7 @@ export default function ResourcePickerModal({
     const [availableOnly, setAvailableOnly] = useState(false);
     const [viewMode, setViewMode] = useState('by_name'); // 'by_name', 'by_type', 'by_category'
     const [selectedIds, setSelectedIds] = useState(new Set());
+    const [lastClickedId, setLastClickedId] = useState(null);
     const [allPositionGroups, setAllPositionGroups] = useState([]);
 
     // Fetch position groups if not provided
@@ -39,58 +40,92 @@ export default function ResourcePickerModal({
         }
     }, [isOpen]);
 
-    // Filter resources
-    const filteredResources = useMemo(() => {
-        let filtered = resources.filter(r => r.type === 'STAFF'); // Only staff resources
+    // Create flattened list: one row per resource+position combination
+    // If a resource has no positions, they get one row with no position info
+    const flattenedResources = useMemo(() => {
+        const staffResources = resources.filter(r => r.type === 'STAFF');
+        const flattened = [];
 
-        // Exclude already assigned resources
-        if (existingResourceIds.length > 0) {
-            filtered = filtered.filter(r => !existingResourceIds.includes(r.id));
-        }
+        staffResources.forEach(resource => {
+            // Exclude already assigned resources
+            if (existingResourceIds.includes(resource.id)) return;
+
+            if (resource.positions && resource.positions.length > 0) {
+                // Create one row per position
+                resource.positions.forEach(rp => {
+                    const fullPosition = positions.find(p => p.id === rp.position_id);
+                    const group = allPositionGroups.find(g => g.id === rp.group_id);
+
+                    flattened.push({
+                        resourceId: resource.id,
+                        resource: resource,
+                        positionId: rp.position_id,
+                        positionName: fullPosition ? (fullPosition.abbreviation || fullPosition.name) : '-',
+                        groupId: rp.group_id,
+                        groupName: group ? group.name : '-',
+                        name: resource.name,
+                        // Unique key for this row
+                        rowKey: `${resource.id}-${rp.position_id}`
+                    });
+                });
+            } else {
+                // Resource with no positions - show once
+                flattened.push({
+                    resourceId: resource.id,
+                    resource: resource,
+                    positionId: null,
+                    positionName: '-',
+                    groupId: null,
+                    groupName: '-',
+                    name: resource.name,
+                    rowKey: `${resource.id}-none`
+                });
+            }
+        });
+
+        return flattened;
+    }, [resources, positions, allPositionGroups, existingResourceIds]);
+
+    // Filter the flattened list
+    const filteredRows = useMemo(() => {
+        let filtered = [...flattenedResources];
 
         // Search filter
         if (searchText.trim()) {
             const query = searchText.toLowerCase();
-            filtered = filtered.filter(r =>
-                r.name?.toLowerCase().includes(query) ||
-                r.first_name?.toLowerCase().includes(query) ||
-                r.last_name?.toLowerCase().includes(query) ||
-                r.email?.toLowerCase().includes(query)
+            filtered = filtered.filter(row =>
+                row.name?.toLowerCase().includes(query) ||
+                row.resource.first_name?.toLowerCase().includes(query) ||
+                row.resource.last_name?.toLowerCase().includes(query) ||
+                row.resource.email?.toLowerCase().includes(query) ||
+                row.positionName?.toLowerCase().includes(query)
             );
         }
 
-        // Group filter (by position group)
+        // Group filter
         if (selectedGroupId) {
-            // Filter resources that have at least one position in the selected group
-            const groupPositionIds = positions
-                .filter(p => p.group_id === parseInt(selectedGroupId))
-                .map(p => p.id);
-
-            filtered = filtered.filter(r => {
-                // Check if resource has any of these positions
-                return r.position_groups?.some(pg => pg.id === parseInt(selectedGroupId)) ||
-                    r.positions?.some(p => groupPositionIds.includes(p.position_id));
-            });
+            filtered = filtered.filter(row => row.groupId === parseInt(selectedGroupId));
         }
 
         // Position filter
         if (selectedPositionId) {
-            filtered = filtered.filter(r =>
-                r.positions?.some(p => p.position_id === parseInt(selectedPositionId))
-            );
+            filtered = filtered.filter(row => row.positionId === parseInt(selectedPositionId));
         }
 
         // Sort based on view mode
         switch (viewMode) {
-            case 'by_type':
-                filtered.sort((a, b) => (a.type || '').localeCompare(b.type || ''));
-                break;
-            case 'by_category':
-                // Sort by first position group name
+            case 'by_type': // By Position
                 filtered.sort((a, b) => {
-                    const aGroup = a.position_groups?.[0]?.name || '';
-                    const bGroup = b.position_groups?.[0]?.name || '';
-                    return aGroup.localeCompare(bGroup);
+                    const posCompare = (a.positionName || '').localeCompare(b.positionName || '');
+                    if (posCompare !== 0) return posCompare;
+                    return (a.name || '').localeCompare(b.name || '');
+                });
+                break;
+            case 'by_category': // By Position Group
+                filtered.sort((a, b) => {
+                    const groupCompare = (a.groupName || '').localeCompare(b.groupName || '');
+                    if (groupCompare !== 0) return groupCompare;
+                    return (a.name || '').localeCompare(b.name || '');
                 });
                 break;
             case 'by_name':
@@ -99,7 +134,7 @@ export default function ResourcePickerModal({
         }
 
         return filtered;
-    }, [resources, searchText, selectedGroupId, selectedPositionId, availableOnly, viewMode, existingResourceIds, positions]);
+    }, [flattenedResources, searchText, selectedGroupId, selectedPositionId, viewMode]);
 
     // Get positions for selected group
     const groupPositions = useMemo(() => {
@@ -107,20 +142,22 @@ export default function ResourcePickerModal({
         return positions.filter(p => p.group_id === parseInt(selectedGroupId));
     }, [selectedGroupId, positions]);
 
-    const toggleSelection = (resourceId) => {
+    const toggleSelection = (rowKey) => {
         setSelectedIds(prev => {
             const next = new Set(prev);
-            if (next.has(resourceId)) {
-                next.delete(resourceId);
+            if (next.has(rowKey)) {
+                next.delete(rowKey);
             } else {
-                next.add(resourceId);
+                next.add(rowKey);
             }
             return next;
         });
     };
 
     const selectAll = () => {
-        setSelectedIds(new Set(filteredResources.map(r => r.id)));
+        // Select all filtered rows by their unique rowKey
+        const uniqueKeys = filteredRows.map(r => r.rowKey);
+        setSelectedIds(new Set(uniqueKeys));
     };
 
     const clearSelection = () => {
@@ -128,25 +165,86 @@ export default function ResourcePickerModal({
     };
 
     const handleConfirmSelection = () => {
-        const selectedResources = resources.filter(r => selectedIds.has(r.id));
-        onSelect(selectedResources);
+        // Return the full row objects which contain resource info AND position info
+        const selectedRows = filteredRows.filter(r => selectedIds.has(r.rowKey));
+        onSelect(selectedRows);
         onClose();
     };
 
-    // Get display info for a resource
+    // Get display info for a resource - look up actual position names from positions prop
     const getResourcePositionInfo = (resource) => {
-        if (resource.positions && resource.positions.length > 0) {
-            const pos = resource.positions[0];
-            return pos.abbreviation || pos.position_name || '';
+        if (!resource.positions || resource.positions.length === 0) {
+            return '-';
         }
-        return '';
+
+        // resource.positions contains {position_id, group_id} objects
+        // We need to look up the actual position name from the positions prop
+        const positionNames = resource.positions
+            .map(rp => {
+                const fullPosition = positions.find(p => p.id === rp.position_id);
+                if (fullPosition) {
+                    return fullPosition.abbreviation || fullPosition.name;
+                }
+                return null;
+            })
+            .filter(Boolean);
+
+        return positionNames.length > 0 ? positionNames.join(', ') : '-';
     };
 
-    const getResourceGroupInfo = (resource) => {
-        if (resource.position_groups && resource.position_groups.length > 0) {
-            return resource.position_groups.map(g => g.name).join(', ');
+    const handleRowClick = (e, rowKey) => {
+        // Prevent default text selection
+        if (e.shiftKey) {
+            window.getSelection()?.removeAllRanges();
         }
-        return '';
+
+        // Handle modifier keys
+        if (e.metaKey || e.ctrlKey) {
+            // Toggle individual
+            toggleSelection(rowKey);
+            setLastClickedId(rowKey);
+        } else if (e.shiftKey && lastClickedId) {
+            // Range select based on row indices
+            const currentIndex = filteredRows.findIndex(r => r.rowKey === rowKey);
+            const lastIndex = filteredRows.findIndex(r => r.rowKey === lastClickedId);
+
+            if (currentIndex !== -1 && lastIndex !== -1) {
+                const start = Math.min(currentIndex, lastIndex);
+                const end = Math.max(currentIndex, lastIndex);
+
+                const rangeKeys = filteredRows.slice(start, end + 1).map(r => r.rowKey);
+
+                setSelectedIds(prev => {
+                    const next = new Set(prev);
+                    rangeKeys.forEach(key => next.add(key));
+                    return next;
+                });
+            }
+        } else {
+            // Simple click - select ONLY this one
+            setSelectedIds(new Set([rowKey]));
+            setLastClickedId(rowKey);
+        }
+    };
+
+    // Get position group names for a resource
+    const getResourceGroupInfo = (resource) => {
+        if (!resource.positions || resource.positions.length === 0) {
+            return '-';
+        }
+
+        // Get unique group IDs from the resource's positions
+        const groupIds = [...new Set(resource.positions.map(rp => rp.group_id).filter(Boolean))];
+
+        // Look up group names from allPositionGroups
+        const groupNames = groupIds
+            .map(gid => {
+                const group = allPositionGroups.find(g => g.id === gid);
+                return group ? group.name : null;
+            })
+            .filter(Boolean);
+
+        return groupNames.length > 0 ? groupNames.join(', ') : '-';
     };
 
     if (!isOpen) return null;
@@ -161,20 +259,32 @@ export default function ResourcePickerModal({
                 </div>
 
                 {/* Filters Bar */}
-                <div className="rp-filters">
+                <div className="rp-filters" onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.preventDefault();
+                }}>
                     <div className="rp-filter-row">
                         <div className="rp-filter-group">
                             <label>Find:</label>
-                            <input
-                                type="text"
-                                value={searchText}
-                                onChange={(e) => setSearchText(e.target.value)}
-                                placeholder="Search resources..."
-                                className="rp-search-input"
-                            />
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    value={searchText}
+                                    onChange={(e) => setSearchText(e.target.value)}
+                                    placeholder="Search resources..."
+                                    className="rp-search-input pr-8"
+                                />
+                                {searchText && (
+                                    <button
+                                        onClick={() => setSearchText('')}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors text-xs"
+                                    >
+                                        ✕
+                                    </button>
+                                )}
+                            </div>
                         </div>
                         <div className="rp-filter-group">
-                            <label>Select Group:</label>
+                            <label>Position Group:</label>
                             <select
                                 value={selectedGroupId}
                                 onChange={(e) => {
@@ -229,13 +339,13 @@ export default function ResourcePickerModal({
                         className={`rp-tab ${viewMode === 'by_type' ? 'active' : ''}`}
                         onClick={() => setViewMode('by_type')}
                     >
-                        By Type
+                        By Position
                     </button>
                     <button
                         className={`rp-tab ${viewMode === 'by_category' ? 'active' : ''}`}
                         onClick={() => setViewMode('by_category')}
                     >
-                        By Category
+                        By Position Group
                     </button>
                     <div className="rp-tab-actions">
                         <button onClick={selectAll} className="rp-action-btn">Select All</button>
@@ -249,41 +359,41 @@ export default function ResourcePickerModal({
                         <thead>
                             <tr>
                                 <th className="rp-th-checkbox"></th>
-                                <th>Type / Position</th>
-                                <th>Category / Group</th>
+                                <th>Position</th>
+                                <th>Position Group</th>
                                 <th>Description / Name</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {filteredResources.length === 0 ? (
+                            {filteredRows.length === 0 ? (
                                 <tr>
                                     <td colSpan="4" className="rp-empty">
                                         No resources found matching your criteria.
                                     </td>
                                 </tr>
                             ) : (
-                                filteredResources.map(resource => (
+                                filteredRows.map(row => (
                                     <tr
-                                        key={resource.id}
-                                        className={selectedIds.has(resource.id) ? 'rp-row-selected' : ''}
-                                        onClick={() => toggleSelection(resource.id)}
+                                        key={row.rowKey}
+                                        className={selectedIds.has(row.rowKey) ? 'rp-row-selected' : ''}
+                                        onClick={(e) => handleRowClick(e, row.rowKey)}
                                     >
                                         <td className="rp-td-checkbox">
                                             <input
                                                 type="checkbox"
-                                                checked={selectedIds.has(resource.id)}
-                                                onChange={() => toggleSelection(resource.id)}
+                                                checked={selectedIds.has(row.rowKey)}
+                                                onChange={() => toggleSelection(row.rowKey)}
                                                 onClick={(e) => e.stopPropagation()}
                                             />
                                         </td>
                                         <td className="rp-td-type">
-                                            {getResourcePositionInfo(resource) || 'Staff'}
+                                            {row.positionName}
                                         </td>
                                         <td className="rp-td-category">
-                                            {getResourceGroupInfo(resource) || '-'}
+                                            {row.groupName}
                                         </td>
                                         <td className="rp-td-name">
-                                            {resource.name}
+                                            {row.name}
                                         </td>
                                     </tr>
                                 ))
@@ -327,9 +437,9 @@ export default function ResourcePickerModal({
                     background: #1e293b;
                     border: 1px solid #475569;
                     border-radius: 8px;
-                    width: 90%;
-                    max-width: 900px;
-                    max-height: 80vh;
+                    width: 95%;
+                    max-width: 1100px;
+                    max-height: 90vh;
                     display: flex;
                     flex-direction: column;
                     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);

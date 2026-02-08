@@ -11,10 +11,10 @@ const { logActivity } = require('../utils/logger');
 /**
  * Calculate cost for a workorder resource
  * @param {Object} resource - The workorder resource
- * @param {number} positionHourlyRate - The position's hourly rate
+ * @param {number} typeHourlyRate - The type's hourly rate
  * @returns {number} - Calculated cost
  */
-function calculateResourceCost(resource, positionHourlyRate) {
+function calculateResourceCost(resource, typeHourlyRate) {
     if (resource.cost_type === 'FLAT') {
         return parseFloat(resource.flat_rate) || 0;
     }
@@ -25,7 +25,7 @@ function calculateResourceCost(resource, positionHourlyRate) {
     const hoursWorked = (endTime - startTime) / (1000 * 60 * 60);
     const billableHours = Math.max(hoursWorked, 8); // 8-hour minimum
 
-    const rate = resource.hourly_rate_override || positionHourlyRate || 0;
+    const rate = resource.hourly_rate_override || typeHourlyRate || resource.position_hourly_rate || 0;
     return billableHours * parseFloat(rate);
 }
 
@@ -48,23 +48,34 @@ router.get('/', requireAuth, requirePermission('view_schedules'), async (req, re
                            'resource_id', wr.resource_id,
                            'resource_name', r.name,
                            'resource_type', r.type,
-                           'position_id', wr.position_id,
-                           'position_name', pos.name,
-                           'position_abbrev', pos.abbreviation,
+                           'type_id', COALESCE(wr.type_id, wr.position_id),
+                           'type_name', COALESCE(t.name, pos.name),
+                           'type_abbrev', COALESCE(t.abbreviation, pos.abbreviation),
+                           'category_name', c.name,
+                           'category_color', c.color,
+                           'group_name', COALESCE(g.name, pg.name),
+                           'group_color', COALESCE(g.color, pg.color),
                            'start_time', wr.start_time,
                            'end_time', wr.end_time,
                            'cost_type', wr.cost_type,
                            'flat_rate', wr.flat_rate,
                            'hourly_rate_override', wr.hourly_rate_override,
-                           'position_hourly_rate', pos.hourly_rate,
-                           'notes', wr.notes
+                           'type_hourly_rate', COALESCE(t.hourly_rate, pos.hourly_rate),
+                           'notes', wr.notes,
+                           'position_id', wr.position_id,
+                           'position_name', pos.name,
+                           'position_abbrev', pos.abbreviation
                        ) ORDER BY wr.start_time
                    ) FILTER (WHERE wr.id IS NOT NULL) as resources
             FROM workorders w
             JOIN projects p ON w.project_id = p.id
             LEFT JOIN workorder_resources wr ON w.id = wr.workorder_id
             LEFT JOIN resources r ON wr.resource_id = r.id
+            LEFT JOIN types t ON wr.type_id = t.id
+            LEFT JOIN categories c ON t.category_id = c.id
+            LEFT JOIN groups g ON c.group_id = g.id
             LEFT JOIN positions pos ON wr.position_id = pos.id
+            LEFT JOIN position_groups pg ON pos.position_group_id = pg.id
         `;
 
         const params = [];
@@ -103,7 +114,7 @@ router.get('/', requireAuth, requirePermission('view_schedules'), async (req, re
             let totalCost = 0;
             if (workorder.resources) {
                 workorder.resources.forEach(resource => {
-                    resource.calculated_cost = calculateResourceCost(resource, resource.position_hourly_rate);
+                    resource.calculated_cost = calculateResourceCost(resource, resource.type_hourly_rate);
                     totalCost += resource.calculated_cost;
                 });
             }
@@ -133,24 +144,32 @@ router.get('/:id', requireAuth, requirePermission('view_schedules'), async (req,
                            'resource_id', wr.resource_id,
                            'resource_name', r.name,
                            'resource_type', r.type,
-                           'position_id', wr.position_id,
-                           'position_name', pos.name,
-                           'position_abbrev', pos.abbreviation,
-                           'group_name', pg.name,
-                           'group_color', pg.color,
+                           'type_id', COALESCE(wr.type_id, wr.position_id),
+                           'type_name', COALESCE(t.name, pos.name),
+                           'type_abbrev', COALESCE(t.abbreviation, pos.abbreviation),
+                           'category_name', c.name,
+                           'category_color', c.color,
+                           'group_name', COALESCE(g.name, pg.name),
+                           'group_color', COALESCE(g.color, pg.color),
                            'start_time', wr.start_time,
                            'end_time', wr.end_time,
                            'cost_type', wr.cost_type,
                            'flat_rate', wr.flat_rate,
                            'hourly_rate_override', wr.hourly_rate_override,
-                           'position_hourly_rate', pos.hourly_rate,
-                           'notes', wr.notes
+                           'type_hourly_rate', COALESCE(t.hourly_rate, pos.hourly_rate),
+                           'notes', wr.notes,
+                           'position_id', wr.position_id,
+                           'position_name', pos.name,
+                           'position_abbrev', pos.abbreviation
                        ) ORDER BY wr.start_time
                    ) FILTER (WHERE wr.id IS NOT NULL) as resources
             FROM workorders w
             JOIN projects p ON w.project_id = p.id
             LEFT JOIN workorder_resources wr ON w.id = wr.workorder_id
             LEFT JOIN resources r ON wr.resource_id = r.id
+            LEFT JOIN types t ON wr.type_id = t.id
+            LEFT JOIN categories c ON t.category_id = c.id
+            LEFT JOIN groups g ON c.group_id = g.id
             LEFT JOIN positions pos ON wr.position_id = pos.id
             LEFT JOIN position_groups pg ON pos.position_group_id = pg.id
             WHERE w.id = $1
@@ -167,7 +186,7 @@ router.get('/:id', requireAuth, requirePermission('view_schedules'), async (req,
         let totalCost = 0;
         if (workorder.resources) {
             workorder.resources.forEach(resource => {
-                resource.calculated_cost = calculateResourceCost(resource, resource.position_hourly_rate);
+                resource.calculated_cost = calculateResourceCost(resource, resource.type_hourly_rate);
                 totalCost += resource.calculated_cost;
             });
         }
@@ -238,12 +257,13 @@ router.post('/', requireAuth, requirePermission('edit_schedules'), async (req, r
             for (const resource of resources) {
                 await client.query(`
                     INSERT INTO workorder_resources (
-                        workorder_id, resource_id, position_id, start_time, end_time,
+                        workorder_id, resource_id, type_id, position_id, start_time, end_time,
                         cost_type, flat_rate, hourly_rate_override, notes
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 `, [
                     workorder.id,
                     resource.resource_id,
+                    resource.type_id || resource.position_id || null,
                     resource.position_id || null,
                     resource.start_time,
                     resource.end_time,
@@ -341,12 +361,13 @@ router.put('/:id', requireAuth, requirePermission('edit_schedules'), async (req,
             for (const resource of resources) {
                 await client.query(`
                     INSERT INTO workorder_resources (
-                        workorder_id, resource_id, position_id, start_time, end_time,
+                        workorder_id, resource_id, type_id, position_id, start_time, end_time,
                         cost_type, flat_rate, hourly_rate_override, notes
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 `, [
                     id,
                     resource.resource_id,
+                    resource.type_id || resource.position_id || null,
                     resource.position_id || null,
                     resource.start_time,
                     resource.end_time,
@@ -463,13 +484,14 @@ router.post('/:id/duplicate', requireAuth, requirePermission('edit_schedules'), 
         for (const r of resources) {
             await client.query(`
                 INSERT INTO workorder_resources (
-                    workorder_id, resource_id, position_id, start_time, end_time,
-                    cost_type, flat_rate, hourly_rate_override, notes, 
+                    workorder_id, resource_id, type_id, position_id, start_time, end_time,
+                    cost_type, flat_rate, hourly_rate_override, notes,
                     pay_type_override, work_state_override
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             `, [
                 newWo.id,
                 r.resource_id,
+                r.type_id,
                 r.position_id,
                 r.start_time,
                 r.end_time,
@@ -512,7 +534,7 @@ router.post('/:id/duplicate', requireAuth, requirePermission('edit_schedules'), 
 // POST add resource to workorder
 router.post('/:id/resources', requireAuth, requirePermission('edit_schedules'), async (req, res) => {
     const { id } = req.params;
-    const { resource_id, position_id, start_time, end_time, cost_type, flat_rate, hourly_rate_override, notes } = req.body;
+    const { resource_id, type_id, position_id, start_time, end_time, cost_type, flat_rate, hourly_rate_override, notes } = req.body;
 
     if (!resource_id || !start_time || !end_time) {
         return res.status(400).json({ error: 'resource_id, start_time, and end_time are required' });
@@ -521,11 +543,11 @@ router.post('/:id/resources', requireAuth, requirePermission('edit_schedules'), 
     try {
         const { rows } = await db.query(`
             INSERT INTO workorder_resources (
-                workorder_id, resource_id, position_id, start_time, end_time,
+                workorder_id, resource_id, type_id, position_id, start_time, end_time,
                 cost_type, flat_rate, hourly_rate_override, notes
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
-        `, [id, resource_id, position_id || null, start_time, end_time,
+        `, [id, resource_id, type_id || position_id || null, position_id || null, start_time, end_time,
             cost_type || 'HOURLY', flat_rate || null, hourly_rate_override || null, notes || null]);
 
         res.status(201).json(rows[0]);

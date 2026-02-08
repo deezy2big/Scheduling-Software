@@ -19,21 +19,28 @@ router.get('/', requireAuth, async (req, res) => {
                        json_agg(
                            json_build_object(
                                'id', sp.id,
-                               'position_id', sp.position_id,
-                               'position_name', p.name,
-                               'abbreviation', p.abbreviation,
-                               'hourly_rate', p.hourly_rate,
-                               'group_name', pg.name,
-                               'group_color', pg.color,
+                               'type_id', COALESCE(sp.type_id, sp.position_id),
+                               'type_name', COALESCE(t.name, p.name),
+                               'abbreviation', COALESCE(t.abbreviation, p.abbreviation),
+                               'hourly_rate', COALESCE(t.hourly_rate, p.hourly_rate),
+                               'category_name', c.name,
+                               'category_color', c.color,
+                               'group_name', COALESCE(g.name, pg.name),
+                               'group_color', COALESCE(g.color, pg.color),
                                'quantity', sp.quantity,
                                'notes', sp.notes,
-                               'display_order', sp.display_order
-                           ) ORDER BY sp.display_order, p.name
+                               'display_order', sp.display_order,
+                               'position_id', sp.position_id,
+                               'position_name', p.name
+                           ) ORDER BY sp.display_order, COALESCE(t.name, p.name)
                        ) FILTER (WHERE sp.id IS NOT NULL),
                        '[]'
                    ) as positions
             FROM services s
             LEFT JOIN service_positions sp ON s.id = sp.service_id
+            LEFT JOIN types t ON sp.type_id = t.id
+            LEFT JOIN categories c ON t.category_id = c.id
+            LEFT JOIN groups g ON c.group_id = g.id
             LEFT JOIN positions p ON sp.position_id = p.id
             LEFT JOIN position_groups pg ON p.position_group_id = pg.id
         `;
@@ -64,21 +71,28 @@ router.get('/:id', requireAuth, async (req, res) => {
                        json_agg(
                            json_build_object(
                                'id', sp.id,
-                               'position_id', sp.position_id,
-                               'position_name', p.name,
-                               'abbreviation', p.abbreviation,
-                               'hourly_rate', p.hourly_rate,
-                               'group_name', pg.name,
-                               'group_color', pg.color,
+                               'type_id', COALESCE(sp.type_id, sp.position_id),
+                               'type_name', COALESCE(t.name, p.name),
+                               'abbreviation', COALESCE(t.abbreviation, p.abbreviation),
+                               'hourly_rate', COALESCE(t.hourly_rate, p.hourly_rate),
+                               'category_name', c.name,
+                               'category_color', c.color,
+                               'group_name', COALESCE(g.name, pg.name),
+                               'group_color', COALESCE(g.color, pg.color),
                                'quantity', sp.quantity,
                                'notes', sp.notes,
-                               'display_order', sp.display_order
-                           ) ORDER BY sp.display_order, p.name
+                               'display_order', sp.display_order,
+                               'position_id', sp.position_id,
+                               'position_name', p.name
+                           ) ORDER BY sp.display_order, COALESCE(t.name, p.name)
                        ) FILTER (WHERE sp.id IS NOT NULL),
                        '[]'
                    ) as positions
             FROM services s
             LEFT JOIN service_positions sp ON s.id = sp.service_id
+            LEFT JOIN types t ON sp.type_id = t.id
+            LEFT JOIN categories c ON t.category_id = c.id
+            LEFT JOIN groups g ON c.group_id = g.id
             LEFT JOIN positions p ON sp.position_id = p.id
             LEFT JOIN position_groups pg ON p.position_group_id = pg.id
             WHERE s.id = $1
@@ -123,9 +137,9 @@ router.post('/', requireAuth, requireRole('ADMIN'), async (req, res) => {
             for (let i = 0; i < positions.length; i++) {
                 const pos = positions[i];
                 await client.query(`
-                    INSERT INTO service_positions (service_id, position_id, quantity, notes, display_order)
-                    VALUES ($1, $2, $3, $4, $5)
-                `, [service.id, pos.position_id, pos.quantity || 1, pos.notes || null, i]);
+                    INSERT INTO service_positions (service_id, type_id, position_id, quantity, notes, display_order)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                `, [service.id, pos.type_id || pos.position_id || null, pos.position_id || null, pos.quantity || 1, pos.notes || null, i]);
             }
         }
 
@@ -147,21 +161,28 @@ router.post('/', requireAuth, requireRole('ADMIN'), async (req, res) => {
                        json_agg(
                            json_build_object(
                                'id', sp.id,
-                               'position_id', sp.position_id,
-                               'position_name', p.name,
-                               'abbreviation', p.abbreviation,
-                               'hourly_rate', p.hourly_rate,
-                               'group_name', pg.name,
-                               'group_color', pg.color,
+                               'type_id', COALESCE(sp.type_id, sp.position_id),
+                               'type_name', COALESCE(t.name, p.name),
+                               'abbreviation', COALESCE(t.abbreviation, p.abbreviation),
+                               'hourly_rate', COALESCE(t.hourly_rate, p.hourly_rate),
+                               'category_name', c.name,
+                               'category_color', c.color,
+                               'group_name', COALESCE(g.name, pg.name),
+                               'group_color', COALESCE(g.color, pg.color),
                                'quantity', sp.quantity,
                                'notes', sp.notes,
-                               'display_order', sp.display_order
-                           ) ORDER BY sp.display_order, p.name
+                               'display_order', sp.display_order,
+                               'position_id', sp.position_id,
+                               'position_name', p.name
+                           ) ORDER BY sp.display_order, COALESCE(t.name, p.name)
                        ) FILTER (WHERE sp.id IS NOT NULL),
                        '[]'
                    ) as positions
             FROM services s
             LEFT JOIN service_positions sp ON s.id = sp.service_id
+            LEFT JOIN types t ON sp.type_id = t.id
+            LEFT JOIN categories c ON t.category_id = c.id
+            LEFT JOIN groups g ON c.group_id = g.id
             LEFT JOIN positions p ON sp.position_id = p.id
             LEFT JOIN position_groups pg ON p.position_group_id = pg.id
             WHERE s.id = $1
@@ -219,9 +240,9 @@ router.put('/:id', requireAuth, requireRole('ADMIN'), async (req, res) => {
             for (let i = 0; i < positions.length; i++) {
                 const pos = positions[i];
                 await client.query(`
-                    INSERT INTO service_positions (service_id, position_id, quantity, notes, display_order)
-                    VALUES ($1, $2, $3, $4, $5)
-                `, [id, pos.position_id, pos.quantity || 1, pos.notes || null, i]);
+                    INSERT INTO service_positions (service_id, type_id, position_id, quantity, notes, display_order)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                `, [id, pos.type_id || pos.position_id || null, pos.position_id || null, pos.quantity || 1, pos.notes || null, i]);
             }
         }
 
@@ -243,21 +264,28 @@ router.put('/:id', requireAuth, requireRole('ADMIN'), async (req, res) => {
                        json_agg(
                            json_build_object(
                                'id', sp.id,
-                               'position_id', sp.position_id,
-                               'position_name', p.name,
-                               'abbreviation', p.abbreviation,
-                               'hourly_rate', p.hourly_rate,
-                               'group_name', pg.name,
-                               'group_color', pg.color,
+                               'type_id', COALESCE(sp.type_id, sp.position_id),
+                               'type_name', COALESCE(t.name, p.name),
+                               'abbreviation', COALESCE(t.abbreviation, p.abbreviation),
+                               'hourly_rate', COALESCE(t.hourly_rate, p.hourly_rate),
+                               'category_name', c.name,
+                               'category_color', c.color,
+                               'group_name', COALESCE(g.name, pg.name),
+                               'group_color', COALESCE(g.color, pg.color),
                                'quantity', sp.quantity,
                                'notes', sp.notes,
-                               'display_order', sp.display_order
-                           ) ORDER BY sp.display_order, p.name
+                               'display_order', sp.display_order,
+                               'position_id', sp.position_id,
+                               'position_name', p.name
+                           ) ORDER BY sp.display_order, COALESCE(t.name, p.name)
                        ) FILTER (WHERE sp.id IS NOT NULL),
                        '[]'
                    ) as positions
             FROM services s
             LEFT JOIN service_positions sp ON s.id = sp.service_id
+            LEFT JOIN types t ON sp.type_id = t.id
+            LEFT JOIN categories c ON t.category_id = c.id
+            LEFT JOIN groups g ON c.group_id = g.id
             LEFT JOIN positions p ON sp.position_id = p.id
             LEFT JOIN position_groups pg ON p.position_group_id = pg.id
             WHERE s.id = $1
@@ -304,6 +332,105 @@ router.delete('/:id', requireAuth, requireRole('ADMIN'), async (req, res) => {
     }
 });
 
+// POST duplicate service (admin only)
+router.post('/:id/duplicate', requireAuth, requireRole('ADMIN'), async (req, res) => {
+    const { id } = req.params;
+    const client = await db.pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // Get the original service
+        const { rows: serviceRows } = await client.query(
+            'SELECT * FROM services WHERE id = $1',
+            [id]
+        );
+
+        if (serviceRows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Service not found' });
+        }
+
+        const original = serviceRows[0];
+
+        // Create a new service with "(Copy)" appended to the name
+        const { rows: newServiceRows } = await client.query(`
+            INSERT INTO services (name, description, is_active, created_by)
+            VALUES ($1, $2, $3, $4)
+            RETURNING *
+        `, [`${original.name} (Copy)`, original.description, original.is_active, req.user.id]);
+
+        const newService = newServiceRows[0];
+
+        // Copy all positions from the original service
+        const { rows: originalPositions } = await client.query(
+            'SELECT * FROM service_positions WHERE service_id = $1 ORDER BY display_order',
+            [id]
+        );
+
+        for (const pos of originalPositions) {
+            await client.query(`
+                INSERT INTO service_positions (service_id, type_id, position_id, quantity, notes, display_order)
+                VALUES ($1, $2, $3, $4, $5, $6)
+            `, [newService.id, pos.type_id, pos.position_id, pos.quantity, pos.notes, pos.display_order]);
+        }
+
+        await client.query('COMMIT');
+
+        await logActivity(
+            req.user.id,
+            'SERVICE_DUPLICATE',
+            'service',
+            newService.id,
+            { original_id: parseInt(id), new_name: newService.name },
+            req
+        );
+
+        // Fetch the full new service with positions to return
+        const { rows: fullService } = await db.query(`
+            SELECT s.*,
+                   COALESCE(
+                       json_agg(
+                           json_build_object(
+                               'id', sp.id,
+                               'type_id', COALESCE(sp.type_id, sp.position_id),
+                               'type_name', COALESCE(t.name, p.name),
+                               'abbreviation', COALESCE(t.abbreviation, p.abbreviation),
+                               'hourly_rate', COALESCE(t.hourly_rate, p.hourly_rate),
+                               'category_name', c.name,
+                               'category_color', c.color,
+                               'group_name', COALESCE(g.name, pg.name),
+                               'group_color', COALESCE(g.color, pg.color),
+                               'quantity', sp.quantity,
+                               'notes', sp.notes,
+                               'display_order', sp.display_order,
+                               'position_id', sp.position_id,
+                               'position_name', p.name
+                           ) ORDER BY sp.display_order, COALESCE(t.name, p.name)
+                       ) FILTER (WHERE sp.id IS NOT NULL),
+                       '[]'
+                   ) as positions
+            FROM services s
+            LEFT JOIN service_positions sp ON s.id = sp.service_id
+            LEFT JOIN types t ON sp.type_id = t.id
+            LEFT JOIN categories c ON t.category_id = c.id
+            LEFT JOIN groups g ON c.group_id = g.id
+            LEFT JOIN positions p ON sp.position_id = p.id
+            LEFT JOIN position_groups pg ON p.position_group_id = pg.id
+            WHERE s.id = $1
+            GROUP BY s.id
+        `, [newService.id]);
+
+        res.status(201).json(fullService[0]);
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
+    } finally {
+        client.release();
+    }
+});
+
 // ============================================
 // SERVICE POSITIONS (individual management)
 // ============================================
@@ -311,10 +438,10 @@ router.delete('/:id', requireAuth, requireRole('ADMIN'), async (req, res) => {
 // POST add position to service (admin only)
 router.post('/:id/positions', requireAuth, requireRole('ADMIN'), async (req, res) => {
     const { id } = req.params;
-    const { position_id, quantity, notes } = req.body;
+    const { type_id, position_id, quantity, notes } = req.body;
 
-    if (!position_id) {
-        return res.status(400).json({ error: 'position_id is required' });
+    if (!type_id && !position_id) {
+        return res.status(400).json({ error: 'type_id or position_id is required' });
     }
 
     try {
@@ -325,18 +452,18 @@ router.post('/:id/positions', requireAuth, requireRole('ADMIN'), async (req, res
         );
 
         const { rows } = await db.query(`
-            INSERT INTO service_positions (service_id, position_id, quantity, notes, display_order)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO service_positions (service_id, type_id, position_id, quantity, notes, display_order)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-        `, [id, position_id, quantity || 1, notes || null, maxOrder[0].next_order]);
+        `, [id, type_id || position_id || null, position_id || null, quantity || 1, notes || null, maxOrder[0].next_order]);
 
         res.status(201).json(rows[0]);
     } catch (err) {
         if (err.code === '23505') {
-            return res.status(409).json({ error: 'This position is already in the service' });
+            return res.status(409).json({ error: 'This type/position is already in the service' });
         }
         if (err.code === '23503') {
-            return res.status(400).json({ error: 'Invalid service or position ID' });
+            return res.status(400).json({ error: 'Invalid service, type, or position ID' });
         }
         console.error(err);
         res.status(500).json({ error: 'Internal server error' });

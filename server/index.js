@@ -12,6 +12,9 @@ const positionRoutes = require('./routes/positions');
 const workorderRoutes = require('./routes/workorders');
 const laborlawRoutes = require('./routes/laborlaws');
 const serviceRoutes = require('./routes/services');
+const groupRoutes = require('./routes/groups');
+const categoryRoutes = require('./routes/categories');
+const typeRoutes = require('./routes/types');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -33,6 +36,9 @@ app.use('/api/positions', positionRoutes);
 app.use('/api/workorders', workorderRoutes);
 app.use('/api/laborlaws', laborlawRoutes);
 app.use('/api/services', serviceRoutes);
+app.use('/api/groups', groupRoutes);
+app.use('/api/categories', categoryRoutes);
+app.use('/api/types', typeRoutes);
 app.use('/api/search', require('./routes/search'));
 
 

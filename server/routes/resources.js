@@ -8,19 +8,30 @@ router.get('/', requireAuth, async (req, res) => {
     try {
         const { type, status, search } = req.query;
         let query = `
-          SELECT r.*, 
+          SELECT r.*,
                  COALESCE(
-                   (SELECT json_agg(json_build_object('position_id', p.id, 'group_id', p.position_group_id))
-                    FROM resource_positions rp
-                    JOIN positions p ON rp.position_id = p.id
-                    WHERE rp.resource_id = r.id),
+                   (SELECT json_agg(json_build_object(
+                       'type_id', t.id,
+                       'type_name', t.name,
+                       'abbreviation', t.abbreviation,
+                       'category_id', c.id,
+                       'category_name', c.name,
+                       'group_id', g.id,
+                       'group_name', g.name,
+                       'custom_hourly_rate', rt.custom_hourly_rate
+                   ))
+                    FROM resource_types rt
+                    JOIN types t ON rt.type_id = t.id
+                    JOIN categories c ON t.category_id = c.id
+                    JOIN groups g ON c.group_id = g.id
+                    WHERE rt.resource_id = r.id),
                    '[]'
-                 ) as positions,
+                 ) as types,
                  COALESCE(
-                   (SELECT json_agg(json_build_object('id', rg.id, 'name', rg.name, 'color', rg.color))
-                    FROM resource_group_assignments rga
-                    JOIN resource_groups rg ON rga.group_id = rg.id
-                    WHERE rga.resource_id = r.id),
+                   (SELECT json_agg(json_build_object('id', g.id, 'name', g.name, 'color', g.color))
+                    FROM resource_group_memberships rgm
+                    JOIN groups g ON rgm.group_id = g.id
+                    WHERE rgm.resource_id = r.id),
                    '[]'
                  ) as groups
           FROM resources r
@@ -76,12 +87,30 @@ router.get('/:id', requireAuth, async (req, res) => {
         const { rows } = await db.query(`
             SELECT r.*,
                    COALESCE(
-                     (SELECT json_agg(json_build_object('id', rg.id, 'name', rg.name, 'color', rg.color))
-                      FROM resource_group_assignments rga
-                      JOIN resource_groups rg ON rga.group_id = rg.id
-                      WHERE rga.resource_id = r.id),
+                     (SELECT json_agg(json_build_object('id', g.id, 'name', g.name, 'color', g.color))
+                      FROM resource_group_memberships rgm
+                      JOIN groups g ON rgm.group_id = g.id
+                      WHERE rgm.resource_id = r.id),
                      '[]'
-                   ) as groups
+                   ) as groups,
+                   COALESCE(
+                     (SELECT json_agg(json_build_object(
+                         'type_id', t.id,
+                         'type_name', t.name,
+                         'abbreviation', t.abbreviation,
+                         'category_id', c.id,
+                         'category_name', c.name,
+                         'group_id', g.id,
+                         'group_name', g.name,
+                         'custom_hourly_rate', rt.custom_hourly_rate
+                     ))
+                      FROM resource_types rt
+                      JOIN types t ON rt.type_id = t.id
+                      JOIN categories c ON t.category_id = c.id
+                      JOIN groups g ON c.group_id = g.id
+                      WHERE rt.resource_id = r.id),
+                     '[]'
+                   ) as types
             FROM resources r
             WHERE r.id = $1
         `, [id]);
@@ -145,7 +174,7 @@ router.post('/', requireAuth, requireRole('ADMIN'), async (req, res) => {
         if (group_ids && Array.isArray(group_ids) && group_ids.length > 0) {
             for (const groupId of group_ids) {
                 await db.query(
-                    'INSERT INTO resource_group_assignments (resource_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+                    'INSERT INTO resource_group_memberships (resource_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
                     [newResource.id, groupId]
                 );
             }
@@ -212,13 +241,13 @@ router.put('/:id', requireAuth, requireRole('ADMIN'), async (req, res) => {
         if (group_ids !== undefined) {
             console.log(`Updating groups for resource ${id}:`, group_ids);
             // Clear existing assignments
-            await db.query('DELETE FROM resource_group_assignments WHERE resource_id = $1', [id]);
+            await db.query('DELETE FROM resource_group_memberships WHERE resource_id = $1', [id]);
 
             // Add new assignments
             if (Array.isArray(group_ids) && group_ids.length > 0) {
                 for (const groupId of group_ids) {
                     await db.query(
-                        'INSERT INTO resource_group_assignments (resource_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+                        'INSERT INTO resource_group_memberships (resource_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
                         [id, groupId]
                     );
                 }

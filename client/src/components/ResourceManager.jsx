@@ -1,1022 +1,33 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../api';
 import ResourceGroupManager from './ResourceGroupManager';
+import ResourceModal from './ResourceModal';
 
-// Color options for resources
-const COLOR_OPTIONS = [
-    '#3B82F6', // Blue
-    '#8B5CF6', // Purple
-    '#22C55E', // Green
-    '#F59E0B', // Amber
-    '#EF4444', // Red
-    '#EC4899', // Pink
-    '#06B6D4', // Cyan
-    '#F97316', // Orange
-];
+// Icons
+const FilterIcon = () => (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+    </svg>
+);
 
-function ResourceModal({ isOpen, onClose, resource, onSave, positions, laborLaws, resourceGroups }) {
-    const [formData, setFormData] = useState({
-        first_name: '',
-        last_name: '',
-        name: '', // For non-staff resources
-        type: 'STAFF',
-        notes: '',
-        color: '#3B82F6',
-        status: 'ACTIVE',
-        pay_type: 'HOURLY',
-        work_state: 'CA',
-        email: '',
-        phone: '',
-        address_street: '',
-        address_unit: '',
-        address_city: '',
-        address_state: '',
-        address_zip: '',
-        start_date: '',
-        group_ids: [],
-    });
-    const [resourcePositions, setResourcePositions] = useState([]);
-    const [pendingPositions, setPendingPositions] = useState([]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
-    const [newPositionId, setNewPositionId] = useState('');
-    const [activeTab, setActiveTab] = useState('basic');
-    const [isGroupsUnlocked, setIsGroupsUnlocked] = useState(false);
-    const [isStatusUnlocked, setIsStatusUnlocked] = useState(false);
+const SortIcon = () => (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+    </svg>
+);
 
-    useEffect(() => {
-        if (resource) {
-            // Parse existing groups from resource
-            const existingGroupIds = resource.groups
-                ? (Array.isArray(resource.groups) ? resource.groups.map(g => g.id) : [])
-                : (resource.group_id ? [resource.group_id] : []);
+const ChevronDownIcon = () => (
+    <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+    </svg>
+);
 
-            setFormData({
-                first_name: resource.first_name || '',
-                last_name: resource.last_name || '',
-                name: resource.name || '',
-                type: resource.type || 'STAFF',
-                notes: resource.notes || resource.description || '',
-                color: resource.color || '#3B82F6',
-                status: resource.status || 'ACTIVE',
-                pay_type: resource.pay_type || 'HOURLY',
-                work_state: resource.work_state || 'CA',
-                email: resource.email || '',
-                phone: resource.phone || '',
-                address_street: resource.address_street || '',
-                address_unit: resource.address_unit || '',
-                address_city: resource.address_city || '',
-                address_state: resource.address_state || '',
-                address_zip: resource.address_zip || '',
-                start_date: resource.start_date ? resource.start_date.split('T')[0] : '',
-                group_ids: existingGroupIds,
-            });
-            if (resource.type === 'STAFF') {
-                fetchResourcePositions(resource.id);
-            }
-            setPendingPositions([]);
-        } else {
-            setFormData({
-                first_name: '',
-                last_name: '',
-                name: '',
-                type: 'STAFF',
-                notes: '',
-                color: '#3B82F6',
-                status: 'ACTIVE',
-                pay_type: 'HOURLY',
-                work_state: 'CA',
-                email: '',
-                phone: '',
-                address_street: '',
-                address_unit: '',
-                address_city: '',
-                address_state: '',
-                address_zip: '',
-                start_date: '',
-                group_ids: [],
-            });
-            setResourcePositions([]);
-            setPendingPositions([]);
-        }
-        setError('');
-        setNewPositionId('');
-        setError('');
-        setNewPositionId('');
-        setActiveTab('basic');
-        setIsGroupsUnlocked(false);
-        setIsStatusUnlocked(false);
-    }, [resource, isOpen]);
+const CheckIcon = () => (
+    <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+    </svg>
+);
 
-    const fetchResourcePositions = async (resourceId) => {
-        try {
-            const pos = await api.getResourcePositions(resourceId);
-            setResourcePositions(pos);
-        } catch (err) {
-            console.error('Failed to fetch resource positions:', err);
-        }
-    };
-
-    const getCurrentPositions = () => {
-        if (resource) {
-            return resourcePositions;
-        }
-        return pendingPositions;
-    };
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        const isStaff = formData.type === 'STAFF';
-
-        // Validate required fields
-        if (isStaff && !formData.first_name.trim() && !formData.last_name.trim()) {
-            setError('First name or last name is required for staff');
-            return;
-        }
-        if (!isStaff && !formData.name.trim()) {
-            setError('Name is required');
-            return;
-        }
-
-        setLoading(true);
-        setError('');
-
-        try {
-            const submitData = {
-                ...formData,
-                // Build name from first/last for staff
-                name: isStaff
-                    ? `${formData.first_name} ${formData.last_name}`.trim()
-                    : formData.name,
-            };
-
-            let savedResource;
-            if (resource) {
-                savedResource = await api.updateResource(resource.id, submitData);
-            } else {
-                savedResource = await api.createResource(submitData);
-
-                // Handle pending positions for new staff
-                if (isStaff && pendingPositions.length > 0) {
-                    for (const pos of pendingPositions) {
-                        try {
-                            await api.addResourcePosition(savedResource.id, {
-                                position_id: pos.position_id,
-                                custom_hourly_rate: pos.custom_hourly_rate
-                            });
-                        } catch (err) {
-                            console.error('Failed to add position:', err);
-                        }
-                    }
-                }
-            }
-            onSave();
-            onClose();
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleAddPosition = async () => {
-        if (!newPositionId) return;
-
-        const position = positions.find(p => p.id === parseInt(newPositionId));
-        if (!position) return;
-
-        if (resource) {
-            try {
-                await api.addResourcePosition(resource.id, {
-                    position_id: parseInt(newPositionId),
-                    custom_hourly_rate: position.hourly_rate || null
-                });
-                await fetchResourcePositions(resource.id);
-                setNewPositionId('');
-            } catch (err) {
-                setError(err.message);
-            }
-        } else {
-            const newPending = {
-                position_id: parseInt(newPositionId),
-                position_name: position.name,
-                abbreviation: position.abbreviation,
-                custom_hourly_rate: parseFloat(position.hourly_rate) || 0,
-                default_hourly_rate: parseFloat(position.hourly_rate) || 0
-            };
-            setPendingPositions([...pendingPositions, newPending]);
-            setNewPositionId('');
-        }
-    };
-
-    const handleRemovePosition = async (positionId) => {
-        if (resource) {
-            try {
-                await api.removeResourcePosition(resource.id, positionId);
-                await fetchResourcePositions(resource.id);
-            } catch (err) {
-                setError(err.message);
-            }
-        } else {
-            setPendingPositions(pendingPositions.filter(p => p.position_id !== positionId));
-        }
-    };
-
-    const handleUpdateRate = async (positionId, newRate) => {
-        if (resource) {
-            try {
-                await api.updateResourcePosition(resource.id, positionId, {
-                    custom_hourly_rate: parseFloat(newRate) || null
-                });
-                await fetchResourcePositions(resource.id);
-            } catch (err) {
-                setError(err.message);
-            }
-        } else {
-            setPendingPositions(pendingPositions.map(p =>
-                p.position_id === positionId
-                    ? { ...p, custom_hourly_rate: parseFloat(newRate) || 0 }
-                    : p
-            ));
-        }
-    };
-
-    const handleGroupToggle = (groupId) => {
-        const id = parseInt(groupId);
-        setFormData(prev => ({
-            ...prev,
-            group_ids: prev.group_ids.includes(id)
-                ? prev.group_ids.filter(g => g !== id)
-                : [...prev.group_ids, id]
-        }));
-    };
-
-    if (!isOpen) return null;
-
-    const isStaff = formData.type === 'STAFF';
-    const currentPositions = getCurrentPositions();
-    const availablePositions = positions.filter(p =>
-        !currentPositions.some(cp => cp.position_id === p.id)
-    );
-
-    return (
-        <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-content resource-modal-v2" onClick={(e) => e.stopPropagation()}>
-                <div className="modal-header">
-                    <h2 className="modal-title">
-                        {resource ? 'Edit Resource' : 'Add New Resource'}
-                    </h2>
-                    <button className="modal-close" onClick={onClose}>✕</button>
-                </div>
-
-                {/* Tab Navigation */}
-                <div className="modal-tabs">
-                    <button
-                        className={`tab-btn ${activeTab === 'basic' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('basic')}
-                        type="button"
-                    >
-                        Basic Info
-                    </button>
-                    <button
-                        className={`tab-btn ${activeTab === 'contact' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('contact')}
-                        type="button"
-                    >
-                        Contact & Address
-                    </button>
-                    {isStaff && (
-                        <button
-                            className={`tab-btn ${activeTab === 'pay' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('pay')}
-                            type="button"
-                        >
-                            Pay & Positions
-                        </button>
-                    )}
-                </div>
-
-                <form onSubmit={handleSubmit} className="modal-form">
-                    {error && (
-                        <div className="error-message">{error}</div>
-                    )}
-
-                    {/* Basic Info Tab */}
-                    {activeTab === 'basic' && (
-                        <div className="tab-content">
-                            {/* Type Selection */}
-                            <div className="form-row">
-                                <div className="form-group" style={{ flex: '0 0 150px' }}>
-                                    <label>Type</label>
-                                    <select
-                                        value={formData.type}
-                                        onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                                    >
-                                        <option value="STAFF">Staff</option>
-                                        <option value="FACILITY">Facility</option>
-                                        <option value="EQUIPMENT">Equipment</option>
-                                    </select>
-                                </div>
-                                <div className="form-group" style={{ flex: '0 0 150px' }}>
-                                    <div className="flex items-center justify-between mb-1">
-                                        <label className="mb-0">Status</label>
-                                        <button
-                                            type="button"
-                                            className={`btn-lock ${isStatusUnlocked ? 'unlocked' : ''}`}
-                                            onClick={() => setIsStatusUnlocked(!isStatusUnlocked)}
-                                            title={isStatusUnlocked ? "Lock Status" : "Unlock to change Status"}
-                                        >
-                                            {isStatusUnlocked ? '🔓' : '🔒'}
-                                        </button>
-                                    </div>
-                                    <select
-                                        value={formData.status}
-                                        onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                                        disabled={!isStatusUnlocked}
-                                        className={!isStatusUnlocked ? 'locked-input' : ''}
-                                    >
-                                        <option value="ACTIVE">Active</option>
-                                        <option value="INACTIVE">Inactive</option>
-                                        <option value="MAINTENANCE">Maintenance</option>
-                                    </select>
-                                </div>
-                                {isStaff && (
-                                    <div className="form-group" style={{ flex: '0 0 150px' }}>
-                                        <label>Start Date</label>
-                                        <input
-                                            type="date"
-                                            value={formData.start_date}
-                                            onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
-                                        />
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Name Fields */}
-                            {isStaff ? (
-                                <div className="form-row">
-                                    <div className="form-group">
-                                        <label>First Name *</label>
-                                        <input
-                                            type="text"
-                                            placeholder="John"
-                                            value={formData.first_name}
-                                            onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label>Last Name *</label>
-                                        <input
-                                            type="text"
-                                            placeholder="Smith"
-                                            value={formData.last_name}
-                                            onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                                        />
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="form-group">
-                                    <label>Name *</label>
-                                    <input
-                                        type="text"
-                                        placeholder="e.g., Edit Bay A, Camera Kit #1"
-                                        value={formData.name}
-                                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                    />
-                                </div>
-                            )}
-
-                            <div className="form-group">
-                                <div className="flex items-center justify-between mb-2">
-                                    <label className="mb-0">Groups (multi-select)</label>
-                                    <button
-                                        type="button"
-                                        className={`btn-lock ${isGroupsUnlocked ? 'unlocked' : ''}`}
-                                        onClick={() => setIsGroupsUnlocked(!isGroupsUnlocked)}
-                                        title={isGroupsUnlocked ? "Lock Groups" : "Unlock to change Groups"}
-                                    >
-                                        {isGroupsUnlocked ? '🔓 Unlock to Edit' : '🔒 Groups Locked'}
-                                    </button>
-                                </div>
-                                <div className={`group-checkboxes ${!isGroupsUnlocked ? 'locked-section' : ''}`}>
-                                    {resourceGroups && resourceGroups.length > 0 ? (
-                                        resourceGroups.map(g => (
-                                            <label
-                                                key={g.id}
-                                                className={`group-checkbox ${formData.group_ids.includes(g.id) ? 'selected' : ''} ${!isGroupsUnlocked ? 'disabled' : ''}`}
-                                                style={{ borderColor: g.color || '#3B82F6' }}
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    checked={formData.group_ids.includes(g.id)}
-                                                    onChange={() => handleGroupToggle(g.id)}
-                                                    disabled={!isGroupsUnlocked}
-                                                />
-                                                <span
-                                                    className="group-color-dot"
-                                                    style={{ backgroundColor: g.color || '#3B82F6' }}
-                                                />
-                                                {g.name}
-                                            </label>
-                                        ))
-                                    ) : (
-                                        <p className="text-slate-500 text-sm">No groups available. Create groups first.</p>
-                                    )}
-                                </div>
-                                {!isGroupsUnlocked && formData.group_ids.length > 0 && (
-                                    <p className="locked-hint">Click the lock icon to add or remove from groups.</p>
-                                )}
-                            </div>
-
-                            {/* Color */}
-                            <div className="form-group">
-                                <label>Color Tag</label>
-                                <div className="color-options">
-                                    {COLOR_OPTIONS.map((color) => (
-                                        <button
-                                            key={color}
-                                            type="button"
-                                            className={`color-btn ${formData.color === color ? 'selected' : ''}`}
-                                            style={{ backgroundColor: color }}
-                                            onClick={() => setFormData({ ...formData, color })}
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Notes */}
-                            <div className="form-group">
-                                <label>Notes</label>
-                                <textarea
-                                    rows={3}
-                                    placeholder="Additional notes..."
-                                    value={formData.notes}
-                                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                                />
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Contact & Address Tab */}
-                    {activeTab === 'contact' && (
-                        <div className="tab-content">
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label>Email</label>
-                                    <input
-                                        type="email"
-                                        placeholder="email@example.com"
-                                        value={formData.email}
-                                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label>Phone</label>
-                                    <input
-                                        type="tel"
-                                        placeholder="555-123-4567"
-                                        value={formData.phone}
-                                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="section-divider">
-                                <span>Address</span>
-                            </div>
-
-                            <div className="form-group">
-                                <label>Street Address</label>
-                                <input
-                                    type="text"
-                                    placeholder="123 Main Street"
-                                    value={formData.address_street}
-                                    onChange={(e) => setFormData({ ...formData, address_street: e.target.value })}
-                                />
-                            </div>
-
-                            <div className="form-row">
-                                <div className="form-group" style={{ flex: '0 0 120px' }}>
-                                    <label>Apt/Unit #</label>
-                                    <input
-                                        type="text"
-                                        placeholder="Apt 4B"
-                                        value={formData.address_unit}
-                                        onChange={(e) => setFormData({ ...formData, address_unit: e.target.value })}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label>City</label>
-                                    <input
-                                        type="text"
-                                        placeholder="Los Angeles"
-                                        value={formData.address_city}
-                                        onChange={(e) => setFormData({ ...formData, address_city: e.target.value })}
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label>State</label>
-                                    <input
-                                        type="text"
-                                        placeholder="CA"
-                                        value={formData.address_state}
-                                        onChange={(e) => setFormData({ ...formData, address_state: e.target.value })}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label>Zip Code</label>
-                                    <input
-                                        type="text"
-                                        placeholder="90001"
-                                        value={formData.address_zip}
-                                        onChange={(e) => setFormData({ ...formData, address_zip: e.target.value })}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Pay & Positions Tab (Staff only) */}
-                    {activeTab === 'pay' && isStaff && (
-                        <div className="tab-content">
-                            <div className="staff-section">
-                                <h3>Pay Settings</h3>
-
-                                <div className="pay-type-row">
-                                    <label className={`pay-option ${formData.pay_type === 'HOURLY' ? 'selected' : ''}`}>
-                                        <input
-                                            type="radio"
-                                            name="pay_type"
-                                            value="HOURLY"
-                                            checked={formData.pay_type === 'HOURLY'}
-                                            onChange={(e) => setFormData({ ...formData, pay_type: e.target.value })}
-                                        />
-                                        <span>Hourly</span>
-                                    </label>
-                                    <label className={`pay-option ${formData.pay_type === 'GUARANTEE_8' ? 'selected' : ''}`}>
-                                        <input
-                                            type="radio"
-                                            name="pay_type"
-                                            value="GUARANTEE_8"
-                                            checked={formData.pay_type === 'GUARANTEE_8'}
-                                            onChange={(e) => setFormData({ ...formData, pay_type: e.target.value })}
-                                        />
-                                        <span>8hr Guarantee</span>
-                                    </label>
-                                    <label className={`pay-option ${formData.pay_type === 'GUARANTEE_10' ? 'selected' : ''}`}>
-                                        <input
-                                            type="radio"
-                                            name="pay_type"
-                                            value="GUARANTEE_10"
-                                            checked={formData.pay_type === 'GUARANTEE_10'}
-                                            onChange={(e) => setFormData({ ...formData, pay_type: e.target.value })}
-                                        />
-                                        <span>10hr Guarantee</span>
-                                    </label>
-                                </div>
-
-                                <div className="form-group" style={{ marginTop: '1rem' }}>
-                                    <label>Work State (labor law)</label>
-                                    <select
-                                        value={formData.work_state}
-                                        onChange={(e) => setFormData({ ...formData, work_state: e.target.value })}
-                                    >
-                                        {laborLaws.map(law => (
-                                            <option key={law.state_code} value={law.state_code}>
-                                                {law.state_name} {law.daily_ot_threshold ? `(OT after ${law.daily_ot_threshold}hrs)` : '(Weekly OT only)'}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                {/* Position Qualifications */}
-                                <div className="positions-section">
-                                    <h3>{resource ? 'Edit Positions' : 'Add Positions'}</h3>
-
-                                    {currentPositions.length === 0 ? (
-                                        <p className="no-positions">No positions assigned yet.</p>
-                                    ) : (
-                                        <table className="positions-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>Position</th>
-                                                    <th>Rate/hr</th>
-                                                    <th></th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {currentPositions.map(rp => (
-                                                    <tr key={rp.position_id}>
-                                                        <td>
-                                                            <span className="position-name">{rp.position_name}</span>
-                                                            {rp.abbreviation && <span className="position-abbr">({rp.abbreviation})</span>}
-                                                        </td>
-                                                        <td>
-                                                            <input
-                                                                type="number"
-                                                                className="rate-input"
-                                                                value={rp.custom_hourly_rate || rp.default_hourly_rate || ''}
-                                                                onChange={(e) => handleUpdateRate(rp.position_id, e.target.value)}
-                                                                step="0.01"
-                                                                min="0"
-                                                            />
-                                                        </td>
-                                                        <td>
-                                                            <button
-                                                                type="button"
-                                                                className="btn-remove-sm"
-                                                                onClick={() => handleRemovePosition(rp.position_id)}
-                                                            >
-                                                                ✕
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    )}
-
-                                    {availablePositions.length > 0 && (
-                                        <div className="add-position-row">
-                                            <select
-                                                value={newPositionId}
-                                                onChange={(e) => setNewPositionId(e.target.value)}
-                                            >
-                                                <option value="">Add position...</option>
-                                                {availablePositions.map(p => (
-                                                    <option key={p.id} value={p.id}>
-                                                        {p.name} (${parseFloat(p.hourly_rate || 0).toFixed(2)}/hr)
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            <button
-                                                type="button"
-                                                className="btn-add-sm"
-                                                onClick={handleAddPosition}
-                                                disabled={!newPositionId}
-                                            >
-                                                + Add
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="modal-actions">
-                        <button type="button" className="btn-cancel" onClick={onClose}>
-                            Cancel
-                        </button>
-                        <button type="submit" className="btn-submit" disabled={loading}>
-                            {loading ? 'Saving...' : resource ? 'Update' : 'Create'}
-                        </button>
-                    </div>
-                </form>
-
-                <style>{`
-                    .resource-modal-v2 {
-                        max-width: 700px;
-                        width: 95%;
-                        max-height: 90vh;
-                        overflow-y: auto;
-                    }
-                    .modal-tabs {
-                        display: flex;
-                        gap: 0;
-                        border-bottom: 1px solid rgba(148, 163, 184, 0.2);
-                        margin-bottom: 1rem;
-                    }
-                    .tab-btn {
-                        background: transparent;
-                        border: none;
-                        padding: 0.75rem 1.25rem;
-                        color: #94a3b8;
-                        cursor: pointer;
-                        font-size: 0.9rem;
-                        border-bottom: 2px solid transparent;
-                        transition: all 0.2s;
-                    }
-                    .tab-btn:hover {
-                        color: #f1f5f9;
-                    }
-                    .tab-btn.active {
-                        color: #3b82f6;
-                        border-bottom-color: #3b82f6;
-                    }
-                    .tab-content {
-                        display: flex;
-                        flex-direction: column;
-                        gap: 1rem;
-                        min-height: 300px;
-                    }
-                    .modal-form {
-                        display: flex;
-                        flex-direction: column;
-                        gap: 1rem;
-                    }
-                    .form-row {
-                        display: flex;
-                        gap: 1rem;
-                    }
-                    .form-group {
-                        flex: 1;
-                        display: flex;
-                        flex-direction: column;
-                        gap: 0.5rem;
-                    }
-                    .form-group label {
-                        font-size: 0.875rem;
-                        color: #94a3b8;
-                    }
-                    .form-group input,
-                    .form-group select,
-                    .form-group textarea {
-                        background: rgba(30, 41, 59, 0.8);
-                        border: 1px solid rgba(148, 163, 184, 0.2);
-                        border-radius: 8px;
-                        padding: 0.75rem;
-                        color: #f1f5f9;
-                        font-size: 0.9rem;
-                    }
-                    .form-group input:focus,
-                    .form-group select:focus,
-                    .form-group textarea:focus {
-                        outline: none;
-                        border-color: #3b82f6;
-                    }
-                    .section-divider {
-                        display: flex;
-                        align-items: center;
-                        gap: 1rem;
-                        margin: 0.5rem 0;
-                    }
-                    .section-divider::before,
-                    .section-divider::after {
-                        content: '';
-                        flex: 1;
-                        height: 1px;
-                        background: rgba(148, 163, 184, 0.2);
-                    }
-                    .section-divider span {
-                        color: #64748b;
-                        font-size: 0.8rem;
-                        text-transform: uppercase;
-                        letter-spacing: 0.05em;
-                    }
-                    .group-checkboxes {
-                        display: flex;
-                        flex-wrap: wrap;
-                        gap: 0.5rem;
-                    }
-                    .group-checkbox {
-                        display: flex;
-                        align-items: center;
-                        gap: 0.5rem;
-                        padding: 0.5rem 0.75rem;
-                        background: rgba(30, 41, 59, 0.5);
-                        border: 1px solid rgba(148, 163, 184, 0.2);
-                        border-radius: 6px;
-                        cursor: pointer;
-                        font-size: 0.85rem;
-                        color: #94a3b8;
-                        transition: all 0.2s;
-                    }
-                    .group-checkbox:hover {
-                        background: rgba(30, 41, 59, 0.8);
-                    }
-                    .group-checkbox.selected {
-                        background: rgba(59, 130, 246, 0.2);
-                        border-color: rgba(59, 130, 246, 0.5);
-                        color: #f1f5f9;
-                    }
-                    .group-checkbox input {
-                        display: none;
-                    }
-                    .group-color-dot {
-                        width: 10px;
-                        height: 10px;
-                        border-radius: 50%;
-                    }
-                    .error-message {
-                        background: rgba(239, 68, 68, 0.2);
-                        border: 1px solid #ef4444;
-                        color: #fca5a5;
-                        padding: 0.75rem;
-                        border-radius: 8px;
-                    }
-                    .staff-section {
-                        background: rgba(15, 23, 42, 0.5);
-                        border: 1px solid rgba(139, 92, 246, 0.3);
-                        border-radius: 12px;
-                        padding: 1rem;
-                    }
-                    .staff-section h3 {
-                        margin: 0 0 0.75rem 0;
-                        font-size: 0.9rem;
-                        color: #a78bfa;
-                        font-weight: 600;
-                    }
-                    .pay-type-row {
-                        display: flex;
-                        gap: 0.5rem;
-                    }
-                    .pay-option {
-                        flex: 1;
-                        display: flex;
-                        align-items: center;
-                        gap: 0.5rem;
-                        padding: 0.75rem;
-                        border-radius: 8px;
-                        cursor: pointer;
-                        background: rgba(30, 41, 59, 0.5);
-                        border: 1px solid transparent;
-                        transition: all 0.2s;
-                        font-size: 0.85rem;
-                        color: #94a3b8;
-                    }
-                    .pay-option:hover {
-                        background: rgba(30, 41, 59, 0.8);
-                    }
-                    .pay-option.selected {
-                        background: rgba(139, 92, 246, 0.2);
-                        border-color: rgba(139, 92, 246, 0.5);
-                        color: #f1f5f9;
-                    }
-                    .positions-section {
-                        margin-top: 1rem;
-                        padding-top: 1rem;
-                        border-top: 1px solid rgba(148, 163, 184, 0.1);
-                    }
-                    .no-positions {
-                        color: #64748b;
-                        font-style: italic;
-                        font-size: 0.875rem;
-                    }
-                    .positions-table {
-                        width: 100%;
-                        border-collapse: collapse;
-                    }
-                    .positions-table th {
-                        text-align: left;
-                        font-size: 0.75rem;
-                        color: #64748b;
-                        padding: 0.5rem;
-                        border-bottom: 1px solid rgba(148, 163, 184, 0.1);
-                    }
-                    .positions-table td {
-                        padding: 0.5rem;
-                        border-bottom: 1px solid rgba(148, 163, 184, 0.05);
-                    }
-                    .position-name {
-                        color: #f1f5f9;
-                    }
-                    .position-abbr {
-                        color: #64748b;
-                        font-size: 0.8rem;
-                        margin-left: 0.25rem;
-                    }
-                    .rate-input {
-                        width: 80px;
-                        padding: 0.4rem;
-                        font-size: 0.85rem;
-                        background: rgba(30, 41, 59, 0.8);
-                        border: 1px solid rgba(148, 163, 184, 0.2);
-                        border-radius: 6px;
-                        color: #22c55e;
-                    }
-                    .btn-remove-sm {
-                        background: transparent;
-                        border: none;
-                        color: #ef4444;
-                        cursor: pointer;
-                        padding: 0.25rem 0.5rem;
-                        font-size: 0.9rem;
-                    }
-                    .btn-remove-sm:hover {
-                        background: rgba(239, 68, 68, 0.2);
-                        border-radius: 4px;
-                    }
-                    .add-position-row {
-                        display: flex;
-                        gap: 0.5rem;
-                        margin-top: 0.75rem;
-                    }
-                    .add-position-row select {
-                        flex: 1;
-                        padding: 0.5rem;
-                        background: rgba(30, 41, 59, 0.8);
-                        border: 1px solid rgba(148, 163, 184, 0.2);
-                        border-radius: 6px;
-                        color: #f1f5f9;
-                        font-size: 0.85rem;
-                    }
-                    .btn-add-sm {
-                        background: #22c55e;
-                        color: white;
-                        border: none;
-                        padding: 0.5rem 1rem;
-                        border-radius: 6px;
-                        cursor: pointer;
-                        font-size: 0.85rem;
-                    }
-                    .btn-add-sm:disabled {
-                        opacity: 0.5;
-                        cursor: not-allowed;
-                    }
-                    .color-options {
-                        display: flex;
-                        gap: 0.5rem;
-                    }
-                    .color-btn {
-                        width: 28px;
-                        height: 28px;
-                        border-radius: 6px;
-                        border: 2px solid transparent;
-                        cursor: pointer;
-                        transition: all 0.2s;
-                    }
-                    .color-btn.selected {
-                        border-color: white;
-                        transform: scale(1.1);
-                    }
-                    .modal-actions {
-                        display: flex;
-                        gap: 1rem;
-                        justify-content: flex-end;
-                        margin-top: 1rem;
-                        padding-top: 1rem;
-                        border-top: 1px solid rgba(148, 163, 184, 0.1);
-                    }
-                    .btn-cancel {
-                        background: transparent;
-                        color: #94a3b8;
-                        border: 1px solid rgba(148, 163, 184, 0.3);
-                        padding: 0.75rem 1.5rem;
-                        border-radius: 8px;
-                        cursor: pointer;
-                    }
-                    .btn-submit {
-                        background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-                        color: white;
-                        border: none;
-                        padding: 0.75rem 2rem;
-                        border-radius: 8px;
-                        cursor: pointer;
-                        font-weight: 500;
-                    }
-                    .btn-submit:disabled {
-                        opacity: 0.5;
-                        cursor: not-allowed;
-                    }
-                    .btn-lock {
-                        background: rgba(148, 163, 184, 0.1);
-                        border: 1px solid rgba(148, 163, 184, 0.2);
-                        color: #94a3b8;
-                        font-size: 0.75rem;
-                        padding: 2px 8px;
-                        border-radius: 4px;
-                        cursor: pointer;
-                        display: flex;
-                        align-items: center;
-                        gap: 4px;
-                        transition: all 0.2s;
-                    }
-                    .btn-lock:hover {
-                        background: rgba(148, 163, 184, 0.2);
-                        color: white;
-                    }
-                    .btn-lock.unlocked {
-                        background: rgba(34, 197, 94, 0.1);
-                        border-color: rgba(34, 197, 94, 0.3);
-                        color: #4ade80;
-                    }
-                    .locked-input {
-                        cursor: not-allowed !important;
-                        opacity: 0.7;
-                        background-color: rgba(30, 41, 59, 0.4) !important;
-                    }
-                    .locked-section {
-                        opacity: 0.8;
-                    }
-                    .group-checkbox.disabled {
-                        cursor: not-allowed !important;
-                        opacity: 0.6;
-                    }
-                    .locked-hint {
-                        font-size: 0.7rem;
-                        color: #64748b;
-                        margin-top: 4px;
-                        font-style: italic;
-                    }
-                `}</style>
-            </div>
-        </div>
-    );
-}
 export function ResourceManager({ initialGroupId }) {
     const [resources, setResources] = useState([]);
     const [positions, setPositions] = useState([]);
@@ -1024,27 +35,52 @@ export function ResourceManager({ initialGroupId }) {
     const [resourceGroups, setResourceGroups] = useState([]);
     const [positionGroups, setPositionGroups] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [filter, setFilter] = useState('ALL');
+
+    // Filter State
+    const [activeFilters, setActiveFilters] = useState({
+        group: 'STUDIO', // 'STUDIO', 'REMOTE', 'ALL'
+        category: 'ALL', // Maps to Resource Group
+        type: 'ALL',     // 'STAFF', 'FACILITY', 'EQUIPMENT'
+        status: 'ACTIVE' // 'ACTIVE', 'INACTIVE', 'ALL'
+    });
+
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedPositionGroupId, setSelectedPositionGroupId] = useState(initialGroupId || 'ALL');
-    const [selectedResourceGroupId, setSelectedResourceGroupId] = useState('ALL');
-    const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
+    const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc', label: 'Name (A-Z)' });
+
+    // UI State
     const [modalOpen, setModalOpen] = useState(false);
     const [groupManagerOpen, setGroupManagerOpen] = useState(false);
     const [editingResource, setEditingResource] = useState(null);
+    const [isFilterOpen, setIsFilterOpen] = useState(false);
+    const [isSortOpen, setIsSortOpen] = useState(false);
+
+    const filterRef = useRef(null);
+    const sortRef = useRef(null);
+
+    // Close dropdowns on outside click
+    useEffect(() => {
+        function handleClickOutside(event) {
+            if (filterRef.current && !filterRef.current.contains(event.target)) {
+                setIsFilterOpen(false);
+            }
+            if (sortRef.current && !sortRef.current.contains(event.target)) {
+                setIsSortOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
 
     useEffect(() => {
         if (initialGroupId) {
-            setSelectedPositionGroupId(initialGroupId);
-        } else {
-            setSelectedPositionGroupId('ALL');
+            // Keep filter logic generic for now
         }
     }, [initialGroupId]);
 
     const fetchResources = async () => {
         setLoading(true);
         try {
-            const data = await api.getResources(filter !== 'ALL' ? { type: filter } : {});
+            const data = await api.getResources({});
             setResources(data);
         } catch (err) {
             console.error(err);
@@ -1064,86 +100,6 @@ export function ResourceManager({ initialGroupId }) {
         } catch (err) {
             console.error('Failed to fetch groups:', err);
         }
-    };
-
-    const handleSort = (key) => {
-        let direction = 'asc';
-        if (sortConfig.key === key && sortConfig.direction === 'asc') {
-            direction = 'desc';
-        }
-        setSortConfig({ key, direction });
-    };
-
-    const getSortedResources = () => {
-        let filtered = resources;
-
-        if (searchQuery) {
-            const query = searchQuery.toLowerCase();
-            filtered = filtered.filter(r => {
-                // Search across all relevant fields
-                const searchFields = [
-                    r.name,
-                    r.first_name,
-                    r.last_name,
-                    r.type,
-                    r.email,
-                    r.phone,
-                    r.address_street,
-                    r.address_unit,
-                    r.address_city,
-                    r.address_state,
-                    r.address_zip,
-                    r.notes,
-                    r.start_date ? r.start_date.toString() : '',
-                ];
-
-                // Search group names (multi-group)
-                if (r.groups && Array.isArray(r.groups)) {
-                    r.groups.forEach(g => searchFields.push(g.name));
-                }
-
-                return searchFields.some(field =>
-                    field && field.toLowerCase().includes(query)
-                );
-            });
-        }
-
-        if (selectedResourceGroupId !== 'ALL') {
-            filtered = filtered.filter(r => {
-                if (selectedResourceGroupId === 'UNASSIGNED') {
-                    return !r.groups || r.groups.length === 0;
-                }
-                const groupId = parseInt(selectedResourceGroupId);
-                return r.groups && Array.isArray(r.groups) && r.groups.some(g => g.id === groupId);
-            });
-        }
-
-        if (selectedPositionGroupId !== 'ALL') {
-            filtered = filtered.filter(r => {
-                const groupId = parseInt(selectedPositionGroupId);
-                // Resources have a list of positions. Each position has a group_id (from server).
-                return r.positions && Array.isArray(r.positions) && r.positions.some(p => parseInt(p.group_id) === groupId);
-            });
-        }
-
-
-        const sorted = [...filtered];
-        sorted.sort((a, b) => {
-            if (sortConfig.key === 'name') {
-                return sortConfig.direction === 'asc'
-                    ? a.name.localeCompare(b.name)
-                    : b.name.localeCompare(a.name);
-            }
-            if (sortConfig.key === 'type') {
-                // Custom order: STAFF -> FACILITY -> EQUIPMENT
-                const typeOrder = { STAFF: 1, FACILITY: 2, EQUIPMENT: 3 };
-                const valA = typeOrder[a.type] || 99;
-                const valB = typeOrder[b.type] || 99;
-                return sortConfig.direction === 'asc' ? valA - valB : valB - valA;
-            }
-            return 0;
-        });
-        return sorted;
     };
 
     const fetchPositions = async () => {
@@ -1169,7 +125,87 @@ export function ResourceManager({ initialGroupId }) {
         fetchPositions();
         fetchLaborLaws();
         fetchGroups();
-    }, [filter]);
+    }, []);
+
+    const handleSortOption = (key, direction, label) => {
+        setSortConfig({ key, direction, label });
+        setIsSortOpen(false);
+    };
+
+    const getSortedResources = () => {
+        let filtered = resources;
+
+        // 1. Filter by Group (Hardcoded Hierarchy Level 1)
+        if (activeFilters.group === 'STUDIO') {
+            // Placeholder: we aren't filtering out anything for Studio yet as we haven't implemented location types
+        }
+
+        // 2. Filter by Category (Resource Groups)
+        if (activeFilters.category !== 'ALL') {
+            if (activeFilters.category === 'UNASSIGNED') {
+                filtered = filtered.filter(r => !r.groups || r.groups.length === 0);
+            } else {
+                const groupId = parseInt(activeFilters.category);
+                filtered = filtered.filter(r => r.groups && Array.isArray(r.groups) && r.groups.some(g => g.id === groupId));
+            }
+        }
+
+        // 3. Filter by Type
+        if (activeFilters.type !== 'ALL') {
+            filtered = filtered.filter(r => r.type === activeFilters.type);
+        }
+
+        // 4. Filter by Status
+        if (activeFilters.status !== 'ALL') {
+            filtered = filtered.filter(r => (r.status || 'ACTIVE') === activeFilters.status);
+        }
+
+        // 5. Search
+        if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            filtered = filtered.filter(r => {
+                const searchFields = [
+                    r.name,
+                    r.first_name,
+                    r.last_name,
+                    r.type,
+                    r.email,
+                    r.phone,
+                    r.notes
+                ];
+                // Search group names
+                if (r.groups && Array.isArray(r.groups)) {
+                    r.groups.forEach(g => searchFields.push(g.name));
+                }
+                return searchFields.some(field => field && field.toLowerCase().includes(query));
+            });
+        }
+
+        // 6. Sort
+        const sorted = [...filtered];
+        sorted.sort((a, b) => {
+            if (sortConfig.key === 'name') {
+                const nameA = a.type === 'STAFF' ? `${a.first_name} ${a.last_name}` : a.name;
+                const nameB = b.type === 'STAFF' ? `${b.first_name} ${b.last_name}` : b.name;
+                return sortConfig.direction === 'asc'
+                    ? String(nameA).localeCompare(String(nameB))
+                    : String(nameB).localeCompare(String(nameA));
+            }
+            if (sortConfig.key === 'type') {
+                const typeOrder = { STAFF: 1, FACILITY: 2, EQUIPMENT: 3 };
+                const valA = typeOrder[a.type] || 99;
+                const valB = typeOrder[b.type] || 99;
+                return sortConfig.direction === 'asc' ? valA - valB : valB - valA;
+            }
+            if (sortConfig.key === 'status') {
+                return sortConfig.direction === 'asc'
+                    ? String(a.status).localeCompare(String(b.status))
+                    : String(b.status).localeCompare(String(a.status));
+            }
+            return 0;
+        });
+        return sorted;
+    };
 
     const handleEdit = (resource) => {
         setEditingResource(resource);
@@ -1193,14 +229,6 @@ export function ResourceManager({ initialGroupId }) {
         setModalOpen(true);
     };
 
-    const getPayTypeBadge = (payType) => {
-        switch (payType) {
-            case 'GUARANTEE_8': return <span className="badge badge-purple">8hr</span>;
-            case 'GUARANTEE_10': return <span className="badge badge-purple">10hr</span>;
-            default: return null;
-        }
-    };
-
     const getTypeBadge = (type) => {
         switch (type) {
             case 'FACILITY': return 'badge-facility';
@@ -1218,6 +246,8 @@ export function ResourceManager({ initialGroupId }) {
             default: return '';
         }
     };
+
+    const sortedResources = getSortedResources();
 
     return (
         <div className="p-6 space-y-6">
@@ -1239,45 +269,169 @@ export function ResourceManager({ initialGroupId }) {
                 </div>
             </div>
 
-            {/* Filters */}
-            <div className="flex flex-wrap items-center gap-4">
-                <div className="flex gap-2">
-                    {['ALL', 'STAFF', 'FACILITY', 'EQUIPMENT'].map((f) => (
+            {/* Toolbar: Search, Filter, Sort */}
+            <div className="flex items-center justify-between gap-4 bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 backdrop-blur-sm">
+
+                {/* Search */}
+                <div className="relative flex-1 max-w-md">
+                    <input
+                        type="text"
+                        placeholder="Search resources..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-600 rounded pl-10 pr-10 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition-all"
+                    />
+                    <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 transform -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    {searchQuery && (
                         <button
-                            key={f}
-                            onClick={() => setFilter(f)}
-                            className={`btn btn-sm ${filter === f ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setSearchQuery('')}
+                            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
                         >
-                            {f === 'ALL' ? 'All' : f.charAt(0) + f.slice(1).toLowerCase()}
+                            ✕
                         </button>
-                    ))}
+                    )}
                 </div>
 
-                <div className="flex items-center gap-2 ml-auto">
-                    <select
-                        value={selectedResourceGroupId}
-                        onChange={(e) => setSelectedResourceGroupId(e.target.value)}
-                        className="bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500"
-                    >
-                        <option value="ALL">All Groups</option>
-                        {resourceGroups.map(g => (
-                            <option key={g.id} value={g.id}>{g.name}</option>
-                        ))}
-                        <option value="UNASSIGNED">Unassigned</option>
-                    </select>
+                <div className="flex gap-2 relative">
+                    {/* Filter Button */}
+                    <div className="relative" ref={filterRef}>
+                        <button
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${isFilterOpen || (activeFilters.category !== 'ALL' || activeFilters.type !== 'ALL')
+                                ? 'bg-blue-500/10 border-blue-500/50 text-blue-400'
+                                : 'bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700'
+                                }`}
+                            onClick={() => setIsFilterOpen(!isFilterOpen)}
+                        >
+                            <FilterIcon />
+                            <span className="text-sm font-medium">Filters</span>
+                            {(activeFilters.category !== 'ALL' || activeFilters.type !== 'ALL') && (
+                                <span className="ml-1 w-2 h-2 bg-blue-500 rounded-full"></span>
+                            )}
+                            <ChevronDownIcon />
+                        </button>
 
-                    <div className="relative">
-                        <input
-                            type="text"
-                            placeholder="Search name, email, city..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="bg-slate-800 border border-slate-600 rounded pl-8 pr-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500 w-64"
+                        {/* Filter Popover */}
+                        {isFilterOpen && (
+                            <div className="absolute right-0 mt-2 w-72 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-20 overflow-hidden ring-1 ring-black/50">
+                                <div className="p-4 space-y-4">
+                                    {/* Group (Level 1) */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Group (Location)</label>
+                                        <select
+                                            value={activeFilters.group}
+                                            onChange={(e) => setActiveFilters(prev => ({ ...prev, group: e.target.value }))}
+                                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                        >
+                                            <option value="ALL">All Groups</option>
+                                            <option value="STUDIO">Studio</option>
+                                            {/* Placeholder for future expansion */}
+                                            {/* <option value="REMOTE">Remote</option> */}
+                                        </select>
+                                    </div>
 
-                        />
-                        <svg className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 transform -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
+                                    {/* Category (Level 2 - Resource Groups) */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Category</label>
+                                        <select
+                                            value={activeFilters.category}
+                                            onChange={(e) => setActiveFilters(prev => ({ ...prev, category: e.target.value }))}
+                                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                        >
+                                            <option value="ALL">All Categories</option>
+                                            {resourceGroups.map(g => (
+                                                <option key={g.id} value={g.id}>{g.name}</option>
+                                            ))}
+                                            <option value="UNASSIGNED">Unassigned</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Type (Level 3) */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Type</label>
+                                        <select
+                                            value={activeFilters.type}
+                                            onChange={(e) => setActiveFilters(prev => ({ ...prev, type: e.target.value }))}
+                                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                        >
+                                            <option value="ALL">All Types</option>
+                                            <option value="STAFF">Staff</option>
+                                            <option value="FACILITY">Facility</option>
+                                            <option value="EQUIPMENT">Equipment</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Status */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</label>
+                                        <select
+                                            value={activeFilters.status}
+                                            onChange={(e) => setActiveFilters(prev => ({ ...prev, status: e.target.value }))}
+                                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                        >
+                                            <option value="ACTIVE">Active</option>
+                                            <option value="INACTIVE">Inactive</option>
+                                            <option value="MAINTENANCE">Maintenance</option>
+                                            <option value="ALL">All Statuses</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="p-3 bg-slate-900/50 border-t border-slate-700 flex justify-end">
+                                    <button
+                                        className="text-xs text-blue-400 hover:text-blue-300 font-medium"
+                                        onClick={() => {
+                                            setActiveFilters({
+                                                group: 'STUDIO',
+                                                category: 'ALL',
+                                                type: 'ALL',
+                                                status: 'ACTIVE'
+                                            });
+                                        }}
+                                    >
+                                        Reset Filters
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Sort Button */}
+                    <div className="relative" ref={sortRef}>
+                        <button
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${isSortOpen
+                                ? 'bg-slate-700 border-slate-500 text-white'
+                                : 'bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700'
+                                }`}
+                            onClick={() => setIsSortOpen(!isSortOpen)}
+                        >
+                            <SortIcon />
+                            <span className="text-sm font-medium">{sortConfig.label}</span>
+                            <ChevronDownIcon />
+                        </button>
+
+                        {/* Sort Dropdown */}
+                        {isSortOpen && (
+                            <div className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-20 py-1 ring-1 ring-black/50">
+                                {[
+                                    { key: 'name', dir: 'asc', label: 'Name (A-Z)' },
+                                    { key: 'name', dir: 'desc', label: 'Name (Z-A)' },
+                                    { key: 'type', dir: 'asc', label: 'Type (Staff First)' },
+                                    { key: 'status', dir: 'asc', label: 'Status' }
+                                ].map((opt) => (
+                                    <button
+                                        key={`${opt.key}-${opt.dir}`}
+                                        className="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white flex items-center justify-between group"
+                                        onClick={() => handleSortOption(opt.key, opt.dir, opt.label)}
+                                    >
+                                        {opt.label}
+                                        {sortConfig.key === opt.key && sortConfig.direction === opt.dir && (
+                                            <CheckIcon />
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -1285,111 +439,105 @@ export function ResourceManager({ initialGroupId }) {
             {/* Table */}
             {loading ? (
                 <div className="text-center py-12 text-slate-400">Loading...</div>
-            ) : resources.length === 0 ? (
-                <div className="glass-card text-center py-12">
-                    <p className="text-slate-400">No resources found.</p>
-                    <button className="btn btn-primary mt-4" onClick={handleAdd}>
-                        Add Your First Resource
+            ) : sortedResources.length === 0 ? (
+                <div className="glass-card text-center py-16 border border-slate-800 rounded-xl bg-slate-900/30">
+                    <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-500">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                        </svg>
+                    </div>
+                    <p className="text-slate-400 text-lg font-medium">No resources found</p>
+                    <p className="text-slate-500 text-sm mt-1">Try adjusting your filters or search query</p>
+                    <button className="btn btn-primary mt-6" onClick={() => {
+                        setActiveFilters({ group: 'STUDIO', category: 'ALL', type: 'ALL', status: 'ALL' });
+                        setSearchQuery('');
+                    }}>
+                        Clear Filters
                     </button>
                 </div>
             ) : (
-                <div className="table-container">
-                    <table className="table">
-                        <thead>
+                <div className="table-container bg-slate-900/50 rounded-xl border border-slate-800 overflow-hidden">
+                    <table className="table w-full">
+                        <thead className="bg-slate-800/80 text-slate-400 text-xs uppercase font-semibold">
                             <tr>
-                                <th></th>
-                                <th onClick={() => handleSort('name')} className="cursor-pointer hover:text-white">
-                                    Name {sortConfig.key === 'name' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
-                                </th>
-                                <th>Group</th>
-                                <th onClick={() => handleSort('type')} className="cursor-pointer hover:text-white">
-                                    Type {sortConfig.key === 'type' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
-                                </th>
-                                <th>Pay</th>
-                                <th>Status</th>
-                                <th>Actions</th>
+                                <th className="w-8"></th>
+                                <th className="px-6 py-4 text-left">Name</th>
+                                <th className="px-6 py-4 text-left">Category</th>
+                                <th className="px-6 py-4 text-left">Type</th>
+                                <th className="px-6 py-4 text-left">Pay</th>
+                                <th className="px-6 py-4 text-left">Status</th>
+                                <th className="px-6 py-4 text-right">Actions</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            {getSortedResources().map((resource) => (
-                                <tr key={resource.id}>
-                                    <td>
+                        <tbody className="divide-y divide-slate-800">
+                            {sortedResources.map((resource) => (
+                                <tr key={resource.id} className="hover:bg-slate-800/50 transition-colors">
+                                    <td className="pl-4">
                                         <div
-                                            className="w-4 h-4 rounded-full"
+                                            className="w-3 h-3 rounded-full shadow-lg shadow-black/50"
                                             style={{ backgroundColor: resource.color || '#3B82F6' }}
                                         />
                                     </td>
-                                    <td className="font-medium">
-                                        {resource.type === 'STAFF'
-                                            ? `${resource.first_name || ''} ${resource.last_name || ''}`.trim() || resource.name
-                                            : resource.name
-                                        }
+                                    <td className="px-6 py-4">
+                                        <div className="font-medium text-white">
+                                            {resource.type === 'STAFF'
+                                                ? `${resource.first_name || ''} ${resource.last_name || ''}`.trim() || resource.name
+                                                : resource.name
+                                            }
+                                        </div>
                                         {resource.type === 'STAFF' && resource.email && (
                                             <div className="text-xs text-slate-400 mt-0.5">{resource.email}</div>
                                         )}
                                     </td>
-                                    <td>
+                                    <td className="px-6 py-4">
                                         <div className="flex flex-wrap gap-1">
                                             {/* Resource Groups */}
                                             {resource.groups && Array.isArray(resource.groups) && resource.groups.map(g => (
                                                 <span
-                                                    key={`rg- ${g.id}`}
-                                                    className="text-[10px] px-1.5 py-0.5 rounded text-white font-medium"
-                                                    style={{ backgroundColor: g.color || '#475569' }}
+                                                    key={`rg-${g.id}`}
+                                                    className="px-2 py-0.5 rounded text-[10px] font-semibold tracking-wide text-slate-300 bg-slate-800 border border-slate-700"
                                                 >
                                                     {g.name}
                                                 </span>
                                             ))}
-
-                                            {/* Position Groups (Areas) */}
-                                            {resource.type === 'STAFF' && resource.positions && Array.isArray(resource.positions) && (
-                                                [...new Set(resource.positions.map(p => parseInt(p.group_id)))].map(groupId => {
-                                                    const group = positionGroups.find(g => g.id === groupId);
-                                                    if (!group) return null;
-                                                    return (
-                                                        <span
-                                                            key={`pg-${groupId}`}
-                                                            className="text-[10px] px-1.5 py-0.5 rounded text-white font-medium border border-white/20 shadow-sm"
-                                                            style={{ backgroundColor: group.color || '#3b82f6' }}
-                                                        >
-                                                            {group.name}
-                                                        </span>
-                                                    );
-                                                })
-                                            )}
-
-                                            {!((resource.groups && resource.groups.length > 0) || (resource.type === 'STAFF' && resource.positions && resource.positions.length > 0)) && (
-                                                <span className="text-xs text-slate-500">—</span>
+                                            {(!resource.groups || resource.groups.length === 0) && (
+                                                <span className="text-xs text-slate-600 italic">Unassigned</span>
                                             )}
                                         </div>
                                     </td>
-
-                                    <td>
-                                        <span className={`badge ${getTypeBadge(resource.type)}`}>
+                                    <td className="px-6 py-4">
+                                        <span className={`badge ${getTypeBadge(resource.type)} inline-flex items-center gap-1.5`}>
+                                            <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></span>
                                             {resource.type}
                                         </span>
                                     </td>
-                                    <td>
-                                        {resource.type === 'STAFF' && getPayTypeBadge(resource.pay_type)}
+                                    <td className="px-6 py-4">
+                                        {/* Display something for Pay if relevant */}
                                     </td>
-                                    <td>
+                                    <td className="px-6 py-4">
                                         <span className={`badge ${getStatusBadge(resource.status)}`}>
                                             {resource.status || 'ACTIVE'}
                                         </span>
                                     </td>
-                                    <td>
-                                        <div className="flex gap-2">
+                                    <td className="px-6 py-4 text-right">
+                                        <div className="flex items-center justify-end gap-2">
                                             <button
-                                                className="btn btn-sm btn-secondary"
+                                                className="p-1.5 hover:bg-slate-700 rounded text-slate-400 hover:text-white transition-colors"
                                                 onClick={() => handleEdit(resource)}
+                                                title="Edit"
                                             >
-                                                Edit
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                </svg>
                                             </button>
                                             <button
-                                                className="btn btn-sm btn-danger"
+                                                className="p-1.5 hover:bg-slate-700 rounded text-red-500 hover:text-red-400 transition-colors"
                                                 onClick={() => handleDelete(resource.id)}
+                                                title="Delete"
                                             >
-                                                Delete
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                </svg>
                                             </button>
                                         </div>
                                     </td>
@@ -1421,6 +569,10 @@ export function ResourceManager({ initialGroupId }) {
             />
 
             <style>{`
+                .glass-card {
+                    background: rgba(30, 41, 59, 0.4);
+                    backdrop-filter: blur(10px);
+                }
                 .badge-purple {
                     background: rgba(139, 92, 246, 0.2);
                     color: #a78bfa;
@@ -1428,6 +580,20 @@ export function ResourceManager({ initialGroupId }) {
                     border-radius: 4px;
                     font-size: 0.75rem;
                 }
+                 .badge {
+                    padding: 0.25rem 0.75rem;
+                    border-radius: 9999px;
+                    font-size: 0.75rem;
+                    font-weight: 600;
+                    letter-spacing: 0.025em;
+                }
+                .badge-facility { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+                .badge-equipment { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+                .badge-staff { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+                
+                .badge-active { background: rgba(16, 185, 129, 0.1); color: #34d399; }
+                .badge-inactive { background: rgba(100, 116, 139, 0.1); color: #94a3b8; }
+                .badge-maintenance { background: rgba(239, 68, 68, 0.1); color: #f87171; }
             `}</style>
         </div>
     );
