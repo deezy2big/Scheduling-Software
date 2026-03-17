@@ -1,16 +1,13 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './pages/LoginPage';
-import UserManagement from './pages/UserManagement';
-import ActivityLogs from './pages/ActivityLogs';
 import Sidebar from './components/Sidebar';
 import Scheduler from './components/Scheduler';
-import ResourceManager from './components/ResourceManager';
-import ServiceManager from './components/ServiceManager';
-import HierarchyManager from './components/HierarchyManager';
+import ManagementContainer from './components/ManagementContainer';
 import SearchResults from './pages/SearchResults';
 import ProjectDetails from './pages/ProjectDetails';
 import ProjectsList from './components/ProjectsList';
+import DraggableModal from './components/DraggableModal';
 
 import api from './api';
 
@@ -23,6 +20,7 @@ function AppContent() {
   const [selectedGroupId, setSelectedGroupId] = useState(null);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [openProjectModals, setOpenProjectModals] = useState([]);
 
   // Fetch groups for the sidebar
   const fetchData = React.useCallback(() => {
@@ -41,6 +39,47 @@ function AppContent() {
   React.useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Project modal management functions
+  const openProjectModal = (projectId) => {
+    // Check if already open
+    if (openProjectModals.some(m => m.projectId === projectId)) {
+      focusProjectModal(projectId);
+      return;
+    }
+
+    // Check max limit
+    if (openProjectModals.length >= 5) {
+      alert('Maximum 5 projects can be open at once. Please close one to continue.');
+      return;
+    }
+
+    // Calculate highest z-index
+    const maxZ = openProjectModals.length > 0
+      ? Math.max(...openProjectModals.map(m => m.zIndex))
+      : 1000;
+
+    setOpenProjectModals([...openProjectModals, {
+      projectId,
+      zIndex: maxZ + 1
+    }]);
+  };
+
+  const closeProjectModal = (projectId) => {
+    setOpenProjectModals(openProjectModals.filter(m => m.projectId !== projectId));
+  };
+
+  const focusProjectModal = (projectId) => {
+    const modal = openProjectModals.find(m => m.projectId === projectId);
+    if (!modal) return;
+
+    const maxZ = Math.max(...openProjectModals.map(m => m.zIndex));
+    if (modal.zIndex === maxZ) return; // Already on top
+
+    setOpenProjectModals(openProjectModals.map(m =>
+      m.projectId === projectId ? { ...m, zIndex: maxZ + 1 } : m
+    ));
+  };
 
   // Keyboard shortcut: ⌘K / Ctrl+K to open search
   React.useEffect(() => {
@@ -69,8 +108,7 @@ function AppContent() {
     // Handle view-project action
     if (String(action).startsWith('view-project-')) {
       const projectId = action.replace('view-project-', '');
-      setSelectedProjectId(projectId);
-      setActiveView('project-details');
+      openProjectModal(projectId);
       return;
     }
 
@@ -104,18 +142,8 @@ function AppContent() {
         return (
           <ProjectsList
             projects={projects}
-            onSelectProject={(id) => {
-              setSelectedProjectId(id);
-              setActiveView('project-details');
-            }}
+            onSelectProject={(id) => openProjectModal(id)}
             onNewProject={() => handleSidebarAction('new-project')}
-          />
-        );
-      case 'project-details':
-        return (
-          <ProjectDetails
-            projectId={selectedProjectId}
-            onClose={() => setActiveView('schedule')}
           />
         );
       case 'search':
@@ -131,18 +159,11 @@ function AppContent() {
               setSelectedGroupId(null);
               setActiveView('resources');
             }}
+            onEditProject={(project) => openProjectModal(project.id)}
           />
         );
-      case 'resources':
-        return <ResourceManager initialGroupId={selectedGroupId} />;
-      case 'services':
-        return <ServiceManager />;
-      case 'hierarchy':
-        return <HierarchyManager />;
-      case 'users':
-        return <UserManagement />;
-      case 'logs':
-        return <ActivityLogs />;
+      case 'management':
+        return <ManagementContainer />;
       case 'schedule':
       default:
         return (
@@ -150,9 +171,8 @@ function AppContent() {
             sidebarAction={sidebarAction}
             onDataChange={fetchData}
             onProjectCreated={(projectId) => {
-              // Auto-redirect to the new project's details page
-              setSelectedProjectId(projectId);
-              setActiveView('project-details');
+              // Open new project in modal instead of navigating
+              openProjectModal(projectId);
             }}
           />
         );
@@ -185,6 +205,22 @@ function AppContent() {
       <main className="flex-1 overflow-auto">
         {renderContent()}
       </main>
+
+      {/* Project Modals */}
+      {openProjectModals.map(modal => (
+        <DraggableModal
+          key={modal.projectId}
+          title="Project Details"
+          isOpen={true}
+          onClose={() => closeProjectModal(modal.projectId)}
+          initialSize={{ width: 900, height: 650 }}
+        >
+          <ProjectDetails
+            projectId={modal.projectId}
+            onClose={() => closeProjectModal(modal.projectId)}
+          />
+        </DraggableModal>
+      ))}
     </div>
   );
 }

@@ -116,9 +116,6 @@ export default function ProjectDetails({ projectId, onClose }) {
                         {project.status}
                     </span>
                 </div>
-                {onClose && (
-                    <button onClick={onClose} className="text-slate-400 hover:text-white">✕ Close</button>
-                )}
             </div>
 
             {/* Title Bar Details */}

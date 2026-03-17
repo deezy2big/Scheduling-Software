@@ -64,7 +64,9 @@ router.get('/', requireAuth, requirePermission('view_schedules'), async (req, re
                            'notes', wr.notes,
                            'position_id', wr.position_id,
                            'position_name', pos.name,
-                           'position_abbrev', pos.abbreviation
+                           'position_abbrev', pos.abbreviation,
+                           'pay_type_override', wr.pay_type_override,
+                           'work_state_override', wr.work_state_override
                        ) ORDER BY wr.start_time
                    ) FILTER (WHERE wr.id IS NOT NULL) as resources
             FROM workorders w
@@ -160,7 +162,9 @@ router.get('/:id', requireAuth, requirePermission('view_schedules'), async (req,
                            'notes', wr.notes,
                            'position_id', wr.position_id,
                            'position_name', pos.name,
-                           'position_abbrev', pos.abbreviation
+                           'position_abbrev', pos.abbreviation,
+                           'pay_type_override', wr.pay_type_override,
+                           'work_state_override', wr.work_state_override
                        ) ORDER BY wr.start_time
                    ) FILTER (WHERE wr.id IS NOT NULL) as resources
             FROM workorders w
@@ -255,22 +259,35 @@ router.post('/', requireAuth, requirePermission('edit_schedules'), async (req, r
         // Add resources if provided
         if (resources && Array.isArray(resources) && resources.length > 0) {
             for (const resource of resources) {
+                // Convert position_id to type_id if needed using the mapping view
+                let typeId = resource.type_id || null;
+                if (!typeId && resource.position_id) {
+                    const mappingResult = await client.query(
+                        'SELECT type_id FROM position_to_type_mapping WHERE position_id = $1',
+                        [resource.position_id]
+                    );
+                    typeId = mappingResult.rows[0]?.type_id || null;
+                }
+
                 await client.query(`
                     INSERT INTO workorder_resources (
                         workorder_id, resource_id, type_id, position_id, start_time, end_time,
-                        cost_type, flat_rate, hourly_rate_override, notes
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                        cost_type, flat_rate, hourly_rate_override, notes,
+                        pay_type_override, work_state_override
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 `, [
                     workorder.id,
                     resource.resource_id,
-                    resource.type_id || resource.position_id || null,
+                    typeId,
                     resource.position_id || null,
                     resource.start_time,
                     resource.end_time,
                     resource.cost_type || 'HOURLY',
                     resource.flat_rate || null,
                     resource.hourly_rate_override || null,
-                    resource.notes || null
+                    resource.notes || null,
+                    resource.pay_type_override || null,
+                    resource.work_state_override || null
                 ]);
             }
         }
@@ -354,27 +371,44 @@ router.put('/:id', requireAuth, requirePermission('edit_schedules'), async (req,
 
         // Update resources if provided
         if (resources && Array.isArray(resources)) {
+            // Debug: Log received resources
+            console.log('Updating workorder resources:', JSON.stringify(resources, null, 2));
+
             // Remove existing resources
             await client.query('DELETE FROM workorder_resources WHERE workorder_id = $1', [id]);
 
             // Add new resources
             for (const resource of resources) {
+                console.log(`Resource ${resource.resource_id}: pay_type_override = ${resource.pay_type_override}`);
+                // Convert position_id to type_id if needed using the mapping view
+                let typeId = resource.type_id || null;
+                if (!typeId && resource.position_id) {
+                    const mappingResult = await client.query(
+                        'SELECT type_id FROM position_to_type_mapping WHERE position_id = $1',
+                        [resource.position_id]
+                    );
+                    typeId = mappingResult.rows[0]?.type_id || null;
+                }
+
                 await client.query(`
                     INSERT INTO workorder_resources (
                         workorder_id, resource_id, type_id, position_id, start_time, end_time,
-                        cost_type, flat_rate, hourly_rate_override, notes
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                        cost_type, flat_rate, hourly_rate_override, notes,
+                        pay_type_override, work_state_override
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 `, [
                     id,
                     resource.resource_id,
-                    resource.type_id || resource.position_id || null,
+                    typeId,
                     resource.position_id || null,
                     resource.start_time,
                     resource.end_time,
                     resource.cost_type || 'HOURLY',
                     resource.flat_rate || null,
                     resource.hourly_rate_override || null,
-                    resource.notes || null
+                    resource.notes || null,
+                    resource.pay_type_override || null,
+                    resource.work_state_override || null
                 ]);
             }
         }
@@ -534,21 +568,33 @@ router.post('/:id/duplicate', requireAuth, requirePermission('edit_schedules'), 
 // POST add resource to workorder
 router.post('/:id/resources', requireAuth, requirePermission('edit_schedules'), async (req, res) => {
     const { id } = req.params;
-    const { resource_id, type_id, position_id, start_time, end_time, cost_type, flat_rate, hourly_rate_override, notes } = req.body;
+    const { resource_id, type_id, position_id, start_time, end_time, cost_type, flat_rate, hourly_rate_override, notes, pay_type_override, work_state_override } = req.body;
 
     if (!resource_id || !start_time || !end_time) {
         return res.status(400).json({ error: 'resource_id, start_time, and end_time are required' });
     }
 
     try {
+        // Convert position_id to type_id if needed using the mapping view
+        let finalTypeId = type_id || null;
+        if (!finalTypeId && position_id) {
+            const mappingResult = await db.query(
+                'SELECT type_id FROM position_to_type_mapping WHERE position_id = $1',
+                [position_id]
+            );
+            finalTypeId = mappingResult.rows[0]?.type_id || null;
+        }
+
         const { rows } = await db.query(`
             INSERT INTO workorder_resources (
                 workorder_id, resource_id, type_id, position_id, start_time, end_time,
-                cost_type, flat_rate, hourly_rate_override, notes
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                cost_type, flat_rate, hourly_rate_override, notes,
+                pay_type_override, work_state_override
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
-        `, [id, resource_id, type_id || position_id || null, position_id || null, start_time, end_time,
-            cost_type || 'HOURLY', flat_rate || null, hourly_rate_override || null, notes || null]);
+        `, [id, resource_id, finalTypeId, position_id || null, start_time, end_time,
+            cost_type || 'HOURLY', flat_rate || null, hourly_rate_override || null, notes || null,
+            pay_type_override || null, work_state_override || null]);
 
         res.status(201).json(rows[0]);
     } catch (err) {

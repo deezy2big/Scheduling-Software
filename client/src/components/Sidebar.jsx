@@ -6,8 +6,6 @@ export function Sidebar({ activeView, onViewChange, onAction, positionGroups = [
     const { user, logout } = useAuth();
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [isManagementOpen, setIsManagementOpen] = useState(true);
-    const [isResourceMgmtOpen, setIsResourceMgmtOpen] = useState(true);
-    const [isSettingsOpen, setIsSettingsOpen] = useState(true);
     const [isSchedulingOpen, setIsSchedulingOpen] = useState(true);
     const [isProjectMgmtOpen, setIsProjectMgmtOpen] = useState(true);
 
@@ -126,6 +124,18 @@ export function Sidebar({ activeView, onViewChange, onAction, positionGroups = [
                     )}
                     {(isManagementOpen || isCollapsed) && (
                         <div className="space-y-1">
+                            {/* MANAGEMENT CONSOLE - All admin features in one place */}
+                            <SidebarItem
+                                id="management"
+                                label="Management Console"
+                                icon="⚙️"
+                                active={activeView === 'management'}
+                                onClick={() => onViewChange('management')}
+                                isCollapsed={isCollapsed}
+                                adminOnly
+                                userRole={user?.role}
+                            />
+
                             {/* DEDICATED SEARCH LINK */}
                             <SidebarItem
                                 id="search"
@@ -239,91 +249,6 @@ export function Sidebar({ activeView, onViewChange, onAction, positionGroups = [
                     )}
                 </div>
 
-                {/* RESOURCE MANAGEMENT SECTION */}
-                <div className="mb-6">
-                    {!isCollapsed && (
-                        <button
-                            onClick={() => setIsResourceMgmtOpen(!isResourceMgmtOpen)}
-                            className="w-full flex items-center justify-between px-3 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-widest hover:text-slate-300 transition-colors"
-                        >
-                            <span>Resource Management</span>
-                            <span className={`transition-transform duration-200 ${isResourceMgmtOpen ? '' : '-rotate-90'}`}>▾</span>
-                        </button>
-                    )}
-                    {(isResourceMgmtOpen || isCollapsed) && (
-                        <div className="space-y-1">
-                            {/* Resources Folder (Collapsible if expanded) */}
-                            <SidebarItem
-                                id="resources"
-                                label="Resources"
-                                icon="👥"
-                                active={activeView === 'resources'}
-                                onClick={() => onAction('view-all-resources')}
-                                isCollapsed={isCollapsed}
-                                adminOnly
-                                userRole={user?.role}
-                            />
-
-                            <SidebarItem
-                                id="hierarchy"
-                                label="Hierarchy"
-                                icon="🏗️"
-                                active={activeView === 'hierarchy'}
-                                onClick={() => onViewChange('hierarchy')}
-                                isCollapsed={isCollapsed}
-                                adminOnly
-                                userRole={user?.role}
-                            />
-                            <SidebarItem
-                                id="services"
-                                label="Services"
-                                icon="🔧"
-                                active={activeView === 'services'}
-                                onClick={() => onViewChange('services')}
-                                isCollapsed={isCollapsed}
-                                adminOnly
-                                userRole={user?.role}
-                            />
-                        </div>
-                    )}
-                </div>
-
-                {/* SETTINGS SECTION */}
-                <div className="mb-6">
-                    {!isCollapsed && (
-                        <button
-                            onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-                            className="w-full flex items-center justify-between px-3 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-widest hover:text-slate-300 transition-colors"
-                        >
-                            <span>Settings</span>
-                            <span className={`transition-transform duration-200 ${isSettingsOpen ? '' : '-rotate-90'}`}>▾</span>
-                        </button>
-                    )}
-                    {(isSettingsOpen || isCollapsed) && (
-                        <div className="space-y-1">
-                            <SidebarItem
-                                id="users"
-                                label="Users"
-                                icon="👤"
-                                active={activeView === 'users'}
-                                onClick={() => onViewChange('users')}
-                                isCollapsed={isCollapsed}
-                                adminOnly
-                                userRole={user?.role}
-                            />
-                            <SidebarItem
-                                id="logs"
-                                label="Activity Logs"
-                                icon="📋"
-                                active={activeView === 'logs'}
-                                onClick={() => onViewChange('logs')}
-                                isCollapsed={isCollapsed}
-                                adminOnly
-                                userRole={user?.role}
-                            />
-                        </div>
-                    )}
-                </div>
             </nav>
 
             {/* User Info & Logout */}
