@@ -1,0 +1,15 @@
+# Ignore files for Cloud Run deployment
+.git
+.gitignore
+.DS_Store
+node_modules/
+client/node_modules/
+server/node_modules/
+*.log
+.env
+.env.local
+README.md
+.vscode/
+.idea/
+*.md
+client/dist/

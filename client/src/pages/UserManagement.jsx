@@ -25,6 +25,7 @@ export function UserManagement() {
 
     const [formData, setFormData] = useState({
         email: '',
+        username: '',
         password: '',
         full_name: '',
         role: 'USER',
@@ -113,6 +114,7 @@ export function UserManagement() {
         setModalType('create');
         setFormData({
             email: '',
+            username: '',
             password: '',
             full_name: '',
             role: 'USER',
@@ -127,6 +129,7 @@ export function UserManagement() {
         setModalType('edit');
         setFormData({
             email: user.email,
+            username: user.username || '',
             password: '',
             full_name: user.full_name || '',
             role: user.role,
@@ -174,6 +177,7 @@ export function UserManagement() {
                 // Update user details
                 const updateData = {
                     email: formData.email,
+                    username: formData.username,
                     full_name: formData.full_name,
                     role: formData.role,
                     is_active: formData.is_active,
@@ -263,6 +267,7 @@ export function UserManagement() {
                         <tr className="border-b border-white/10">
                             <th className="text-left p-4 text-slate-400 font-medium">Avatar</th>
                             <th className="text-left p-4 text-slate-400 font-medium">Email</th>
+                            <th className="text-left p-4 text-slate-400 font-medium">Username</th>
                             <th className="text-left p-4 text-slate-400 font-medium">Name</th>
                             <th className="text-left p-4 text-slate-400 font-medium">Role</th>
                             <th className="text-left p-4 text-slate-400 font-medium">Permissions</th>
@@ -290,6 +295,7 @@ export function UserManagement() {
                                         <span className="text-xs text-red-400">(Inactive)</span>
                                     )}
                                 </td>
+                                <td className="p-4 text-slate-300 text-sm">{user.username || <span className="text-slate-500">-</span>}</td>
                                 <td className="p-4 text-slate-300">{user.full_name || '-'}</td>
                                 <td className="p-4">
                                     <span className={`badge ${user.role === 'ADMIN' ? 'badge-purple' : 'badge-blue'}`}>
@@ -398,6 +404,23 @@ export function UserManagement() {
                                             value={formData.email}
                                             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                                             required
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="label">
+                                            Username <span className="text-slate-500 text-sm">(optional - used for login)</span>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            className="input"
+                                            value={formData.username}
+                                            onChange={(e) => setFormData({ ...formData, username: e.target.value.replace(/[^a-zA-Z0-9_]/g, '') })}
+                                            minLength={3}
+                                            maxLength={30}
+                                            placeholder="e.g. john_doe"
+                                            pattern="[a-zA-Z0-9_]{3,30}"
+                                            title="3-30 characters: letters, numbers, and underscores only"
                                         />
                                     </div>
 

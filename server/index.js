@@ -2,6 +2,10 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 
+console.log('Starting server...');
+console.log('Environment:', process.env.NODE_ENV || 'development');
+console.log('Port:', process.env.PORT || 3001);
+
 const authRoutes = require('./routes/auth');
 const resourceRoutes = require('./routes/resources');
 const projectRoutes = require('./routes/projects');
@@ -15,6 +19,8 @@ const serviceRoutes = require('./routes/services');
 const groupRoutes = require('./routes/groups');
 const categoryRoutes = require('./routes/categories');
 const typeRoutes = require('./routes/types');
+
+console.log('Routes loaded successfully');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -47,7 +53,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(express.static(path.join(__dirname, '../client/dist')));
 
 // For any other request, send back the index.html from the frontend build
-app.get('*', (req, res, next) => {
+app.get('/{*path}', (req, res, next) => {
     // Skip if the request is to the API
     if (req.path.startsWith('/api/')) {
         return next();
@@ -61,6 +67,23 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date() });
 });
 
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✓ Server successfully started on port ${PORT}`);
+    console.log(`✓ Health check available at http://0.0.0.0:${PORT}/health`);
+    console.log(`✓ Ready to accept connections`);
+});
+
+// Handle server errors
+server.on('error', (error) => {
+    console.error('Server error:', error);
+    process.exit(1);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+    console.log('SIGTERM received, shutting down gracefully');
+    server.close(() => {
+        console.log('Server closed');
+        process.exit(0);
+    });
 });

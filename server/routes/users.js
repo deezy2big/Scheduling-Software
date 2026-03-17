@@ -29,9 +29,9 @@ router.get('/', requireAuth, requirePermission('manage_users'), async (req, res)
         const queryParams = [];
         let paramIndex = 1;
 
-        // Search filter (email or full_name)
+        // Search filter (email, username, or full_name)
         if (search) {
-            whereClauses.push(`(u.email ILIKE $${paramIndex} OR u.full_name ILIKE $${paramIndex})`);
+            whereClauses.push(`(u.email ILIKE $${paramIndex} OR u.full_name ILIKE $${paramIndex} OR u.username ILIKE $${paramIndex})`);
             queryParams.push(`%${search}%`);
             paramIndex++;
         }
@@ -100,7 +100,7 @@ router.get('/', requireAuth, requirePermission('manage_users'), async (req, res)
 
         // Get users with filters
         const usersQuery = `
-            SELECT u.id, u.email, u.full_name, u.role, u.is_active, u.last_login_at, u.created_at,
+            SELECT u.id, u.email, u.username, u.full_name, u.role, u.is_active, u.last_login_at, u.created_at,
                    u.avatar_url, u.avatar_uploaded_at,
                    COALESCE(json_agg(p.permission_name) FILTER (WHERE p.permission_name IS NOT NULL), '[]') as permissions
             FROM users u
@@ -196,7 +196,7 @@ router.post('/', requireAuth, requirePermission('manage_users'), async (req, res
 // PUT update user (requires manage_users permission)
 router.put('/:id', requireAuth, requirePermission('manage_users'), async (req, res) => {
     const { id } = req.params;
-    const { email, full_name, role, is_active, password } = req.body;
+    const { email, username, full_name, role, is_active, password } = req.body;
 
     try {
         // Check if email is being changed and if it already exists
@@ -207,6 +207,23 @@ router.put('/:id', requireAuth, requirePermission('manage_users'), async (req, r
             );
             if (existing.rows.length > 0) {
                 return res.status(400).json({ error: 'Email already in use by another user' });
+            }
+        }
+
+        // Check if username is being changed and if it already exists
+        if (username) {
+            // Validate username format: letters, numbers, underscores only, 3-30 chars
+            const usernameRegex = /^[a-zA-Z0-9_]{3,30}$/;
+            if (!usernameRegex.test(username)) {
+                return res.status(400).json({ error: 'Username must be 3-30 characters and contain only letters, numbers, and underscores' });
+            }
+
+            const existing = await db.query(
+                'SELECT id FROM users WHERE username = $1 AND id != $2',
+                [username, id]
+            );
+            if (existing.rows.length > 0) {
+                return res.status(400).json({ error: 'Username already taken' });
             }
         }
 
@@ -224,6 +241,10 @@ router.put('/:id', requireAuth, requirePermission('manage_users'), async (req, r
         if (email) {
             updates.push(`email = $${paramCount++}`);
             values.push(email);
+        }
+        if (username !== undefined) {
+            updates.push(`username = $${paramCount++}`);
+            values.push(username || null); // Allow clearing username by sending empty string
         }
         if (full_name !== undefined) {
             updates.push(`full_name = $${paramCount++}`);
@@ -248,10 +269,10 @@ router.put('/:id', requireAuth, requirePermission('manage_users'), async (req, r
 
         values.push(id);
         const query = `
-            UPDATE users 
+            UPDATE users
             SET ${updates.join(', ')}
             WHERE id = $${paramCount}
-            RETURNING id, email, full_name, role, is_active
+            RETURNING id, email, username, full_name, role, is_active
         `;
 
         const { rows } = await db.query(query, values);
@@ -266,7 +287,7 @@ router.put('/:id', requireAuth, requirePermission('manage_users'), async (req, r
             ACTIONS.USER_UPDATE,
             'user',
             parseInt(id),
-            { changes: { email, full_name, role, is_active, password_changed: !!password } },
+            { changes: { email, username, full_name, role, is_active, password_changed: !!password } },
             req
         );
 

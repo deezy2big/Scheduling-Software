@@ -45,15 +45,21 @@ router.post('/login', async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-        return res.status(400).json({ error: 'Email and password are required' });
+        return res.status(400).json({ error: 'Email/username and password are required' });
     }
 
     try {
-        // Find user
-        const { rows } = await db.query(
-            'SELECT id, email, password_hash, full_name, role FROM users WHERE email = $1',
-            [email]
-        );
+        // Find user by email or username (if input contains @, search by email; otherwise try both)
+        const isEmail = email.includes('@');
+        const { rows } = isEmail
+            ? await db.query(
+                'SELECT id, email, username, password_hash, full_name, role FROM users WHERE email = $1',
+                [email]
+            )
+            : await db.query(
+                'SELECT id, email, username, password_hash, full_name, role FROM users WHERE username = $1 OR email = $1',
+                [email]
+            );
 
         if (rows.length === 0) {
             return res.status(401).json({ error: 'Invalid credentials' });
@@ -84,6 +90,7 @@ router.post('/login', async (req, res) => {
             user: {
                 id: user.id,
                 email: user.email,
+                username: user.username,
                 full_name: user.full_name,
                 role: user.role
             }
@@ -112,7 +119,7 @@ router.get('/me', async (req, res) => {
 
     try {
         const { rows } = await db.query(
-            'SELECT id, email, full_name, role, created_at FROM users WHERE id = $1',
+            'SELECT id, email, username, full_name, role, created_at FROM users WHERE id = $1',
             [decoded.id]
         );
 

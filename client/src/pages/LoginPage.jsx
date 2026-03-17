@@ -43,11 +43,11 @@ export function LoginPage() {
                 {/* Login Form */}
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
-                        <label className="label">Email</label>
+                        <label className="label">Email or Username</label>
                         <input
-                            type="email"
+                            type="text"
                             className="input"
-                            placeholder="admin@rms.local"
+                            placeholder="admin@rms.local or username"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             required
