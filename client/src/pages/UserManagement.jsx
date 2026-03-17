@@ -1,6 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api';
 import { format } from 'date-fns';
+import AvatarUpload from '../components/AvatarUpload';
+import UserFilters from '../components/UserFilters';
+import UserActivityModal from '../components/UserActivityModal';
 
 const PERMISSION_OPTIONS = [
     { value: 'view_schedules', label: 'View Schedules' },
@@ -17,6 +20,8 @@ export function UserManagement() {
     const [showModal, setShowModal] = useState(false);
     const [modalType, setModalType] = useState('create'); // 'create', 'edit', 'permissions', 'password'
     const [editingUser, setEditingUser] = useState(null);
+    const [showActivityModal, setShowActivityModal] = useState(false);
+    const [activityUser, setActivityUser] = useState(null);
 
     const [formData, setFormData] = useState({
         email: '',
@@ -27,20 +32,80 @@ export function UserManagement() {
         permissions: [],
     });
 
-    useEffect(() => {
-        fetchUsers();
-    }, []);
+    // Filter and pagination state
+    const [showFilters, setShowFilters] = useState(false);
+    const [filters, setFilters] = useState({
+        search: '',
+        role: '',
+        is_active: '',
+        permission: '',
+        last_login_from: '',
+        last_login_to: '',
+        sort_by: 'created_at',
+        sort_order: 'desc'
+    });
+    const [pagination, setPagination] = useState({
+        total: 0,
+        limit: 50,
+        offset: 0
+    });
 
-    const fetchUsers = async () => {
+    const fetchUsers = useCallback(async () => {
         try {
             setLoading(true);
-            const data = await api.getUsers();
-            setUsers(data);
+            const data = await api.getUsers({
+                ...filters,
+                limit: pagination.limit,
+                offset: pagination.offset
+            });
+            setUsers(data.users || data); // Support both old and new API response
+            setPagination(prev => ({
+                ...prev,
+                total: data.total || (data.users ? data.users.length : data.length)
+            }));
         } catch (err) {
             setError(err.message);
         } finally {
             setLoading(false);
         }
+    }, [filters, pagination.limit, pagination.offset]);
+
+    useEffect(() => {
+        fetchUsers();
+    }, [fetchUsers]);
+
+    // Filter and pagination handlers
+    const handleFilterChange = (key, value) => {
+        setFilters(prev => ({ ...prev, [key]: value }));
+        setPagination(prev => ({ ...prev, offset: 0 })); // Reset to first page
+    };
+
+    const handleClearFilters = () => {
+        setFilters({
+            search: '',
+            role: '',
+            is_active: '',
+            permission: '',
+            last_login_from: '',
+            last_login_to: '',
+            sort_by: 'created_at',
+            sort_order: 'desc'
+        });
+        setPagination(prev => ({ ...prev, offset: 0 }));
+    };
+
+    const handleNextPage = () => {
+        setPagination(prev => ({
+            ...prev,
+            offset: Math.min(prev.offset + prev.limit, prev.total - 1)
+        }));
+    };
+
+    const handlePrevPage = () => {
+        setPagination(prev => ({
+            ...prev,
+            offset: Math.max(prev.offset - prev.limit, 0)
+        }));
     };
 
     const handleAddUser = () => {
@@ -89,6 +154,11 @@ export function UserManagement() {
             password: '',
         });
         setShowModal(true);
+    };
+
+    const handleViewActivity = (user) => {
+        setActivityUser(user);
+        setShowActivityModal(true);
     };
 
     const handleSubmit = async (e) => {
@@ -154,12 +224,20 @@ export function UserManagement() {
                 <div>
                     <h1 className="text-2xl font-bold">User Management</h1>
                     <p className="text-slate-400 text-sm mt-1">
-                        Manage users and permissions
+                        {pagination.total > 0 && `Showing ${pagination.offset + 1}-${Math.min(pagination.offset + pagination.limit, pagination.total)} of ${pagination.total} users`}
                     </p>
                 </div>
-                <button className="btn btn-primary" onClick={handleAddUser}>
-                    + Add User
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        className="btn btn-secondary"
+                        onClick={() => setShowFilters(!showFilters)}
+                    >
+                        {showFilters ? 'Hide Filters' : 'Show Filters'}
+                    </button>
+                    <button className="btn btn-primary" onClick={handleAddUser}>
+                        + Add User
+                    </button>
+                </div>
             </div>
 
             {/* Error Message */}
@@ -169,11 +247,21 @@ export function UserManagement() {
                 </div>
             )}
 
+            {/* Filters */}
+            {showFilters && (
+                <UserFilters
+                    filters={filters}
+                    onFilterChange={handleFilterChange}
+                    onClearFilters={handleClearFilters}
+                />
+            )}
+
             {/* Users Table */}
             <div className="glass-card flex-1">
                 <table className="w-full">
                     <thead>
                         <tr className="border-b border-white/10">
+                            <th className="text-left p-4 text-slate-400 font-medium">Avatar</th>
                             <th className="text-left p-4 text-slate-400 font-medium">Email</th>
                             <th className="text-left p-4 text-slate-400 font-medium">Name</th>
                             <th className="text-left p-4 text-slate-400 font-medium">Role</th>
@@ -185,6 +273,17 @@ export function UserManagement() {
                     <tbody>
                         {users.map((user) => (
                             <tr key={user.id} className="border-b border-white/5 hover:bg-white/5">
+                                <td className="p-4">
+                                    <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-700 flex items-center justify-center">
+                                        {user.avatar_url ? (
+                                            <img src={`http://localhost:3001${user.avatar_url}`} alt={user.full_name || user.email} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <span className="text-lg font-medium text-slate-400">
+                                                {(user.full_name || user.email).charAt(0).toUpperCase()}
+                                            </span>
+                                        )}
+                                    </div>
+                                </td>
                                 <td className="p-4">
                                     <div className="font-medium">{user.email}</div>
                                     {!user.is_active && (
@@ -238,6 +337,13 @@ export function UserManagement() {
                                         >
                                             Password
                                         </button>
+                                        <button
+                                            className="btn btn-sm btn-secondary"
+                                            onClick={() => handleViewActivity(user)}
+                                            title="View activity history"
+                                        >
+                                            Activity
+                                        </button>
                                     </div>
                                 </td>
                             </tr>
@@ -245,6 +351,31 @@ export function UserManagement() {
                     </tbody>
                 </table>
             </div>
+
+            {/* Pagination Controls */}
+            {pagination.total > pagination.limit && (
+                <div className="flex items-center justify-between glass-card p-4">
+                    <div className="text-sm text-slate-400">
+                        Showing {pagination.offset + 1}-{Math.min(pagination.offset + pagination.limit, pagination.total)} of {pagination.total} users
+                    </div>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={handlePrevPage}
+                            disabled={pagination.offset === 0}
+                            className="btn btn-secondary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Previous
+                        </button>
+                        <button
+                            onClick={handleNextPage}
+                            disabled={pagination.offset + pagination.limit >= pagination.total}
+                            className="btn btn-secondary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Next
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Modal */}
             {showModal && (
@@ -294,6 +425,20 @@ export function UserManagement() {
                                             onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
                                         />
                                     </div>
+
+                                    {modalType === 'edit' && editingUser && (
+                                        <div>
+                                            <label className="label">Profile Picture</label>
+                                            <AvatarUpload
+                                                userId={editingUser.id}
+                                                currentAvatarUrl={editingUser.avatar_url ? `http://localhost:3001${editingUser.avatar_url}` : null}
+                                                onUploadComplete={(url) => {
+                                                    setEditingUser({ ...editingUser, avatar_url: url });
+                                                    fetchUsers(); // Refresh user list to show new avatar
+                                                }}
+                                            />
+                                        </div>
+                                    )}
 
                                     <div>
                                         <label className="label">Role</label>
@@ -388,6 +533,14 @@ export function UserManagement() {
                         </form>
                     </div>
                 </div>
+            )}
+
+            {/* Activity Modal */}
+            {showActivityModal && activityUser && (
+                <UserActivityModal
+                    user={activityUser}
+                    onClose={() => setShowActivityModal(false)}
+                />
             )}
         </div>
     );

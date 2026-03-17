@@ -41,8 +41,9 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/types', typeRoutes);
 app.use('/api/search', require('./routes/search'));
 
-// Serve static files from the frontend build
+// Serve static files (uploads and frontend build)
 const path = require('path');
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(express.static(path.join(__dirname, '../client/dist')));
 
 // For any other request, send back the index.html from the frontend build

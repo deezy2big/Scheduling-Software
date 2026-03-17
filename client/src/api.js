@@ -185,8 +185,18 @@ export const api = {
     },
 
     // Users
-    getUsers: async () => {
-        const res = await fetch(`${API_BASE}/users`, {
+    getUsers: async (filters = {}) => {
+        const params = new URLSearchParams();
+        Object.entries(filters).forEach(([key, value]) => {
+            if (value !== '' && value !== null && value !== undefined) {
+                params.append(key, value);
+            }
+        });
+
+        const queryString = params.toString();
+        const url = queryString ? `${API_BASE}/users?${queryString}` : `${API_BASE}/users`;
+
+        const res = await fetch(url, {
             headers: getAuthHeaders(),
         });
         if (!res.ok) throw new Error('Failed to fetch users');
@@ -241,6 +251,37 @@ export const api = {
         if (!res.ok) {
             const err = await res.json();
             throw new Error(err.error || 'Failed to reset password');
+        }
+        return res.json();
+    },
+
+    uploadUserAvatar: async (id, file) => {
+        const formData = new FormData();
+        formData.append('avatar', file);
+
+        const token = localStorage.getItem('rms_token');
+        const res = await fetch(`${API_BASE}/users/${id}/avatar`, {
+            method: 'POST',
+            headers: {
+                'Authorization': token ? `Bearer ${token}` : '',
+            },
+            body: formData,
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to upload avatar');
+        }
+        return res.json();
+    },
+
+    deleteUserAvatar: async (id) => {
+        const res = await fetch(`${API_BASE}/users/${id}/avatar`, {
+            method: 'DELETE',
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to delete avatar');
         }
         return res.json();
     },
@@ -848,6 +889,41 @@ export const api = {
         if (!res.ok) {
             const err = await res.json();
             throw new Error(err.error || 'Failed to delete type');
+        }
+        return res.json();
+    },
+
+    // User Activity
+    getUserActivity: async (userId, filters = {}) => {
+        const params = new URLSearchParams();
+        Object.entries(filters).forEach(([key, value]) => {
+            if (value !== '' && value !== null && value !== undefined) {
+                params.append(key, value);
+            }
+        });
+
+        const queryString = params.toString();
+        const url = queryString
+            ? `${API_BASE}/users/${userId}/activity?${queryString}`
+            : `${API_BASE}/users/${userId}/activity`;
+
+        const res = await fetch(url, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to fetch user activity');
+        }
+        return res.json();
+    },
+
+    getUserActivitySummary: async (userId) => {
+        const res = await fetch(`${API_BASE}/users/${userId}/activity/summary`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to fetch activity summary');
         }
         return res.json();
     },
