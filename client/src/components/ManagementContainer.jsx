@@ -12,7 +12,7 @@ function ManagementContainer() {
     const tabs = [
         { id: 'resources', label: 'Resources', icon: '👥' },
         { id: 'services', label: 'Services', icon: '🔧' },
-        { id: 'hierarchy', label: 'Hierarchy', icon: '📊' },
+        { id: 'hierarchy', label: 'Roles & Billing Codes', icon: '🎬' },
         { id: 'positions', label: 'Positions', icon: '💼' },
         { id: 'users', label: 'Users', icon: '👤' },
         { id: 'logs', label: 'Activity Logs', icon: '📋' },
