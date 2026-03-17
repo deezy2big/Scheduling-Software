@@ -41,6 +41,19 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/types', typeRoutes);
 app.use('/api/search', require('./routes/search'));
 
+// Serve static files from the frontend build
+const path = require('path');
+app.use(express.static(path.join(__dirname, '../client/dist')));
+
+// For any other request, send back the index.html from the frontend build
+app.get('*', (req, res, next) => {
+    // Skip if the request is to the API
+    if (req.path.startsWith('/api/')) {
+        return next();
+    }
+    res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+});
+
 
 // Health check
 app.get('/health', (req, res) => {
