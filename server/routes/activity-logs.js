@@ -51,12 +51,22 @@ router.get('/', requireAuth, requirePermission('view_logs'), async (req, res) =>
 
         const { rows } = await db.query(query, params);
 
-        // Get total count for pagination
-        const countQuery = query.replace(/LIMIT.*OFFSET.*/, '');
-        const { rows: countRows } = await db.query(
-            `SELECT COUNT(*) as total FROM (${countQuery}) as subq`,
-            params.slice(0, -2) // Remove limit and offset params
-        );
+        // Build a separate count query using the same filters (without LIMIT/OFFSET)
+        const countParams = params.slice(0, -2); // Remove limit and offset
+        let countQuery = `
+      SELECT COUNT(*) as total
+      FROM activity_logs al
+      LEFT JOIN users u ON al.user_id = u.id
+      WHERE 1=1
+    `;
+        let countParamIndex = 1;
+        if (user_id) { countQuery += ` AND al.user_id = $${countParamIndex++}`; }
+        if (action) { countQuery += ` AND al.action = $${countParamIndex++}`; }
+        if (entity_type) { countQuery += ` AND al.entity_type = $${countParamIndex++}`; }
+        if (start_date) { countQuery += ` AND al.created_at >= $${countParamIndex++}`; }
+        if (end_date) { countQuery += ` AND al.created_at <= $${countParamIndex++}`; }
+
+        const { rows: countRows } = await db.query(countQuery, countParams);
 
         res.json({
             logs: rows,

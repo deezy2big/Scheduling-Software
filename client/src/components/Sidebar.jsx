@@ -2,12 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api';
 
-export function Sidebar({ activeView, onViewChange, onAction, positionGroups = [], selectedGroupId = null, projects = [], onSearch }) {
+export function Sidebar({ activeView, onViewChange, onAction, positionGroups = [], selectedGroupId = null, projects = [], onSearch, activeScheduleBooks = [], onToggleScheduleBook }) {
     const { user, logout } = useAuth();
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [isManagementOpen, setIsManagementOpen] = useState(true);
     const [isSchedulingOpen, setIsSchedulingOpen] = useState(true);
     const [isProjectMgmtOpen, setIsProjectMgmtOpen] = useState(true);
+    const [isScheduleBookOpen, setIsScheduleBookOpen] = useState(true);
 
 
     // Search State
@@ -82,6 +83,59 @@ export function Sidebar({ activeView, onViewChange, onAction, positionGroups = [
                                 onClick={() => onViewChange('schedule')}
                                 isCollapsed={isCollapsed}
                             />
+
+                            {/* Schedule Book — collapsed icon when sidebar is collapsed */}
+                            {isCollapsed && activeView === 'schedule' && (
+                                <button
+                                    onClick={() => setIsCollapsed(false)}
+                                    title="Schedule Book"
+                                    className="w-full flex items-center justify-center px-3 py-2.5 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent hover:border-white/5 transition-all duration-200 group"
+                                >
+                                    <span className="text-lg flex-shrink-0 transition-transform duration-200 group-hover:scale-110">📋</span>
+                                </button>
+                            )}
+
+                            {/* Schedule Book — expanded list when sidebar is open */}
+                            {!isCollapsed && activeView === 'schedule' && (
+                                <div className="mt-2">
+                                    <button
+                                        onClick={() => setIsScheduleBookOpen(!isScheduleBookOpen)}
+                                        className="w-full flex items-center justify-between px-3 py-1 text-xs font-semibold text-slate-500 uppercase tracking-widest hover:text-slate-300 transition-colors"
+                                    >
+                                        <span>Schedule Book</span>
+                                        <span className={`transition-transform duration-200 ${isScheduleBookOpen ? '' : '-rotate-90'}`}>▾</span>
+                                    </button>
+
+                                    {isScheduleBookOpen && (
+                                        <div className="mt-1 space-y-0.5">
+                                            {/* All Resources row */}
+                                            <button
+                                                onClick={() => onToggleScheduleBook && onToggleScheduleBook('__all__')}
+                                                className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-left transition-all text-xs ${activeScheduleBooks.length === 0 ? 'text-blue-400 bg-blue-500/10 font-semibold' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'}`}
+                                            >
+                                                <span className="w-1.5 h-1.5 rounded-full bg-slate-500 flex-shrink-0"></span>
+                                                All Resources
+                                                {activeScheduleBooks.length === 0 && <span className="ml-auto text-blue-400">✓</span>}
+                                            </button>
+
+                                            {positionGroups.map(group => {
+                                                const isActive = activeScheduleBooks.map(Number).includes(Number(group.id));
+                                                return (
+                                                    <button
+                                                        key={group.id}
+                                                        onClick={() => onToggleScheduleBook && onToggleScheduleBook(group.id)}
+                                                        className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-left transition-all text-xs ${isActive ? 'text-slate-200 bg-white/8 font-medium' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'}`}
+                                                    >
+                                                        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: group.color || '#3b82f6' }}></span>
+                                                        <span className="truncate">{group.name}</span>
+                                                        {isActive && <span className="ml-auto text-blue-400 flex-shrink-0">✓</span>}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

@@ -21,6 +21,23 @@ function AppContent() {
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [openProjectModals, setOpenProjectModals] = useState([]);
+  const [activeScheduleBooks, setActiveScheduleBooks] = useState([]);
+
+  const toggleScheduleBook = (groupId) => {
+    if (groupId === '__all__') {
+      setActiveScheduleBooks([]);
+      return;
+    }
+    setActiveScheduleBooks(prev => {
+      const num = Number(groupId);
+      if (prev.map(Number).includes(num)) return prev.filter(id => Number(id) !== num);
+      return [...prev, groupId];
+    });
+  };
+
+  const removeScheduleBook = (groupId) => {
+    setActiveScheduleBooks(prev => prev.filter(id => Number(id) !== Number(groupId)));
+  };
 
   // Fetch groups for the sidebar
   const fetchData = React.useCallback(() => {
@@ -170,10 +187,10 @@ function AppContent() {
           <Scheduler
             sidebarAction={sidebarAction}
             onDataChange={fetchData}
-            onProjectCreated={(projectId) => {
-              // Open new project in modal instead of navigating
-              openProjectModal(projectId);
-            }}
+            onProjectCreated={(projectId) => openProjectModal(projectId)}
+            activeScheduleBooks={activeScheduleBooks}
+            onRemoveScheduleBook={removeScheduleBook}
+            onToggleScheduleBook={toggleScheduleBook}
           />
         );
     }
@@ -201,6 +218,8 @@ function AppContent() {
         selectedGroupId={selectedGroupId}
         projects={projects}
         onSearch={handleSearch}
+        activeScheduleBooks={activeScheduleBooks}
+        onToggleScheduleBook={toggleScheduleBook}
       />
       <main className="flex-1 overflow-auto">
         {renderContent()}

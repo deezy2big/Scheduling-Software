@@ -11,7 +11,7 @@ const { logActivity } = require('../utils/logger');
 // GET all types with hierarchy info
 router.get('/', requireAuth, async (req, res) => {
     try {
-        const { category_id, group_id } = req.query;
+        const { category_id, group_id, search } = req.query;
 
         let query = `
             SELECT t.*,
@@ -37,6 +37,12 @@ router.get('/', requireAuth, async (req, res) => {
         if (group_id) {
             params.push(group_id);
             conditions.push(`g.id = $${params.length}`);
+        }
+
+        // Search by billing code (abbreviation), role name, or category name
+        if (search) {
+            params.push(`%${search}%`);
+            conditions.push(`(t.name ILIKE $${params.length} OR t.abbreviation ILIKE $${params.length} OR c.name ILIKE $${params.length})`);
         }
 
         if (conditions.length > 0) {
