@@ -175,7 +175,7 @@ const MiniCalendar = ({ selectedDates, onSelect, onClose }) => {
     );
 };
 
-export default function Scheduler({ sidebarAction, onDataChange, onProjectCreated }) {
+export default function Scheduler({ sidebarAction, onDataChange, onProjectCreated, activeScheduleBooks = [], onRemoveScheduleBook, onToggleScheduleBook }) {
     const [events, setEvents] = useState([]);
     const [resources, setResources] = useState([]);
     const [positions, setPositions] = useState([]);
@@ -184,13 +184,6 @@ export default function Scheduler({ sidebarAction, onDataChange, onProjectCreate
     const [view, setView] = useState(Views.WEEK);
     const [date, setDate] = useState(new Date());
     const [isCompactMode, setIsCompactMode] = useState(false);
-
-    // Filter state
-    const [selectedGroups, setSelectedGroups] = useState([]);
-    const [filterPanelOpen, setFilterPanelOpen] = useState(true);
-
-    // Schedule Book tabs state
-    const [activeScheduleBook, setActiveScheduleBook] = useState('all');
 
     // Date range filter
     const [dateRangeStart, setDateRangeStart] = useState('');
@@ -297,41 +290,6 @@ export default function Scheduler({ sidebarAction, onDataChange, onProjectCreate
         }
     }, []);
 
-    // Initialize selected groups only once when groups are loaded
-    useEffect(() => {
-        if (selectedGroups.length === 0 && positionGroups.length > 0) {
-            // Check if this is the first load (to avoid overriding user's manual "deselect all")
-            // We can check if previous state was empty because of initialization vs user action.
-            // But simplify: Only default to All if we have groups and haven't touched selection yet?
-            // Actually, the user COMPLAINED about it resetting when they selected None.
-            // So we should ONLY initialize if we believe it's the app start.
-            // Since we don't have a "hasInitialized" flag in state, we can assume if the array is empty 
-            // AND we just loaded groups, we might want to set them. 
-            // BUT, if the user explicitly cleared them, we don't want to reset.
-            // The previous bug was that fetchData was called, saw 0 selected, and Reset them.
-            // By moving this out of fetchData, we solve the recursion.
-            // But we still need to know: should we select all on load?
-            // Let's use a ref to track if we've done the initial populate.
-        }
-    }, [positionGroups]); // We'll rely on the ref approach in the next chunk or handle logic differently.
-
-    // Better Approach: Use a ref to track initialization
-    const groupsInitializedRef = React.useRef(false);
-
-    useEffect(() => {
-        if (!groupsInitializedRef.current && positionGroups.length > 0) {
-            setSelectedGroups(positionGroups.map(g => g.id));
-            groupsInitializedRef.current = true;
-        }
-    }, [positionGroups]);
-
-    // Handle schedule book tab changes
-    useEffect(() => {
-        if (activeScheduleBook === 'all') {
-            // When "All Resources" is selected, show all groups
-            setSelectedGroups(positionGroups.map(g => g.id));
-        }
-    }, [activeScheduleBook, positionGroups]);
 
     useEffect(() => {
         fetchData();
@@ -387,7 +345,7 @@ export default function Scheduler({ sidebarAction, onDataChange, onProjectCreate
     const filteredResources = resources.filter(r => {
         if (focusedResourceId) return r.id === focusedResourceId;
         if (r.type !== 'STAFF') return true;
-        if (selectedGroups.length === 0) return false;
+        if (activeScheduleBooks.length === 0) return true; // empty = all groups
 
         let types = r.types;
         if (typeof types === 'string') {
@@ -396,7 +354,7 @@ export default function Scheduler({ sidebarAction, onDataChange, onProjectCreate
         if (!Array.isArray(types)) types = [];
         if (types.length === 0) return true;
 
-        return types.some(t => selectedGroups.map(Number).includes(Number(t.category_id)));
+        return types.some(t => activeScheduleBooks.map(Number).includes(Number(t.category_id)));
     });
 
     const groupedResources = useMemo(() => {
@@ -720,28 +678,6 @@ export default function Scheduler({ sidebarAction, onDataChange, onProjectCreate
         showToast('Workorder deleted');
     };
 
-    const toggleGroup = (groupId) => {
-        setSelectedGroups(prev => {
-            const numGroupId = Number(groupId);
-            const numPrev = prev.map(Number);
-            if (numPrev.includes(numGroupId)) {
-                return prev.filter(id => Number(id) !== numGroupId);
-            } else {
-                return [...prev, groupId];
-            }
-        });
-    };
-
-    const selectAllGroups = () => {
-        if (activeScheduleBook === 'all') {
-            setSelectedGroups(positionGroups.map(g => g.id));
-        } else {
-            // If a specific schedule book is active, only select that one
-            setSelectedGroups([activeScheduleBook]);
-        }
-    };
-    const clearAllGroups = () => setSelectedGroups([]);
-
     const navigatePrevious = () => {
         if (view === Views.DAY) setDate(addDays(date, -1));
         else if (view === Views.WEEK) setDate(addDays(date, -7));
@@ -752,6 +688,17 @@ export default function Scheduler({ sidebarAction, onDataChange, onProjectCreate
         if (view === Views.DAY) setDate(addDays(date, 1));
         else if (view === Views.WEEK) setDate(addDays(date, 7));
         else setDate(addDays(endOfMonth(date), 1));
+    };
+
+    const navigateByView = (v, direction) => {
+        const anchor = selectedDates.length > 0 ? selectedDates[0] : date;
+        let newDate;
+        if (v === Views.DAY) newDate = addDays(anchor, direction);
+        else if (v === Views.WEEK) newDate = addDays(anchor, direction * 7);
+        else newDate = direction > 0 ? addDays(endOfMonth(anchor), 1) : addDays(startOfMonth(anchor), -1);
+        setDate(newDate);
+        setSelectedDates([]);
+        setView(v);
     };
 
     const goToToday = () => {
@@ -819,38 +766,6 @@ export default function Scheduler({ sidebarAction, onDataChange, onProjectCreate
 
     return (
         <div className="scheduler-container">
-            <div className={`filter-panel ${filterPanelOpen ? 'open' : 'closed'}`}>
-                <div className="filter-header">
-                    <h3>{activeScheduleBook === 'all' ? 'Position Groups' : positionGroups.find(g => g.id === activeScheduleBook)?.name || 'Position Groups'}</h3>
-                    <div className="filter-header-actions">
-                        <button className="icon-btn settings-btn" onClick={() => setGroupManagerOpen(true)} title="Manage Groups">⚙️</button>
-                        <button className="toggle-btn" onClick={() => setFilterPanelOpen(!filterPanelOpen)}>
-                            {filterPanelOpen ? '◀' : '▶'}
-                        </button>
-                    </div>
-                </div>
-                {filterPanelOpen && (
-                    <div className="filter-content">
-                        <div className="filter-actions">
-                            <button onClick={selectAllGroups}>All</button>
-                            <button onClick={clearAllGroups}>None</button>
-                        </div>
-                        <div className="group-list">
-                            {positionGroups
-                                .filter(group => activeScheduleBook === 'all' || group.id === activeScheduleBook)
-                                .map(group => (
-                                    <label key={group.id} className="group-item">
-                                        <input type="checkbox" checked={selectedGroups.includes(group.id)} onChange={() => toggleGroup(group.id)} />
-                                        <span className="group-color" style={{ background: group.color }} />
-                                        <span className="group-name">{group.name}</span>
-                                        <span className="group-count">{group.position_count}</span>
-                                    </label>
-                                ))}
-                        </div>
-                    </div>
-                )}
-            </div>
-
             <div className="scheduler-main">
                 <div className="scheduler-header">
                     <div>
@@ -891,9 +806,13 @@ export default function Scheduler({ sidebarAction, onDataChange, onProjectCreate
                     </div>
                     <div className="view-controls">
                         {[Views.DAY, Views.WEEK, Views.MONTH].map(v => (
-                            <button key={v} onClick={() => { setView(v); setSelectedDates([]); }} className={`view-btn ${view === v ? 'active' : ''}`}>
-                                {v.charAt(0).toUpperCase() + v.slice(1).replace('_', ' ')}
-                            </button>
+                            <div key={v} className="view-btn-group">
+                                <button className="view-arrow-btn" onClick={() => navigateByView(v, -1)} title={`Previous ${v}`}>◀</button>
+                                <button onClick={() => { if (selectedDates.length > 0) setDate(selectedDates[0]); setView(v); setSelectedDates([]); }} className={`view-btn ${view === v ? 'active' : ''}`}>
+                                    {v.charAt(0).toUpperCase() + v.slice(1).replace('_', ' ')}
+                                </button>
+                                <button className="view-arrow-btn" onClick={() => navigateByView(v, 1)} title={`Next ${v}`}>▶</button>
+                            </div>
                         ))}
                         <button
                             className={`view-btn ${isCompactMode ? 'active' : ''}`}
@@ -905,27 +824,23 @@ export default function Scheduler({ sidebarAction, onDataChange, onProjectCreate
                     </div>
                 </div>
 
-                {/* Schedule Book Tabs */}
-                <div className="schedule-book-tabs">
-                    <button
-                        className={`schedule-book-tab ${activeScheduleBook === 'all' ? 'active' : ''}`}
-                        onClick={() => setActiveScheduleBook('all')}
-                    >
-                        📚 All Resources
-                    </button>
-                    {positionGroups.map(group => (
-                        <button
-                            key={group.id}
-                            className={`schedule-book-tab ${activeScheduleBook === group.id ? 'active' : ''}`}
-                            onClick={() => {
-                                setActiveScheduleBook(group.id);
-                                // Auto-select this group in the filter
-                                setSelectedGroups([group.id]);
-                            }}
-                        >
-                            📋 {group.name}
-                        </button>
-                    ))}
+                {/* Active Schedule Book Chips */}
+                <div className="schedule-book-chips">
+                    {activeScheduleBooks.length === 0 ? (
+                        <span className="sb-chip sb-chip-all">All Resources</span>
+                    ) : (
+                        activeScheduleBooks.map(id => {
+                            const group = positionGroups.find(g => Number(g.id) === Number(id));
+                            if (!group) return null;
+                            return (
+                                <span key={id} className="sb-chip" style={{ '--chip-color': group.color }}>
+                                    <span className="sb-chip-dot" style={{ background: group.color }} />
+                                    {group.name}
+                                    <button className="sb-chip-remove" onClick={() => onRemoveScheduleBook(id)} title={`Remove ${group.name}`}>×</button>
+                                </span>
+                            );
+                        })
+                    )}
                 </div>
 
                 {!focusedResourceId ? (
@@ -1210,17 +1125,6 @@ export default function Scheduler({ sidebarAction, onDataChange, onProjectCreate
 
             <style>{`
                 .scheduler-container { display: flex; height: 100%; background: #0a0e17; color: #f1f5f9; }
-                .filter-panel { background: rgba(15, 23, 42, 0.95); border-right: 1px solid rgba(148, 163, 184, 0.1); transition: width 0.3s; display: flex; flex-direction: column; overflow: hidden; }
-                .filter-panel.open { width: 220px; }
-                .filter-panel.closed { width: 44px; }
-                .filter-panel.closed .filter-header { justify-content: center; padding: 1rem 0; }
-                .filter-panel.closed h3 { display: none; }
-                .filter-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem; border-bottom: 1px solid rgba(148, 163, 184, 0.1); }
-                .filter-header h3 { font-size: 0.875rem; margin: 0; white-space: nowrap; }
-                .toggle-btn { background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; }
-                .filter-content { flex: 1; overflow-y: auto; padding: 0.5rem; }
-                .filter-actions { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
-                .filter-actions button { flex: 1; font-size: 0.75rem; padding: 4px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); color: #60a5fa; border-radius: 4px; }
                 .group-list { display: flex; flex-direction: column; gap: 4px; }
                 .group-item { display: flex; align-items: center; gap: 8px; padding: 6px; border-radius: 4px; cursor: pointer; }
                 .group-item:hover { background: rgba(255, 255, 255, 0.05); }
@@ -1247,9 +1151,16 @@ export default function Scheduler({ sidebarAction, onDataChange, onProjectCreate
                 .today-btn { padding: 0 24px; font-weight: 600; background: #1f2937; color: #e5e7eb; border: 1px solid #374151; border-radius: 6px; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
                 .today-btn:hover { background: #374151; color: white; }
 
-                .view-controls { display: flex; gap: 4px; flex: 1; }
-                .view-btn { flex: 1; padding: 8px 12px; font-size: 0.85rem; background: #1f2937; border: 1px solid #374151; color: #9ca3af; border-radius: 6px; cursor: pointer; text-align: center; font-weight: 500; transition: all 0.2s; }
-                .view-btn.active { background: #3b82f6; color: white; border-color: #3b82f6; box-shadow: 0 0 10px rgba(59, 130, 246, 0.3); }
+                .view-controls { display: flex; gap: 6px; flex: 1; }
+                .view-btn-group { display: flex; flex: 1; border-radius: 6px; overflow: hidden; border: 1px solid #374151; }
+                .view-btn-group .view-arrow-btn { padding: 8px 10px; font-size: 0.75rem; background: #1f2937; border: none; border-right: 1px solid #374151; color: #6b7280; cursor: pointer; transition: all 0.15s; flex-shrink: 0; }
+                .view-btn-group .view-arrow-btn:last-child { border-right: none; border-left: 1px solid #374151; }
+                .view-btn-group .view-arrow-btn:hover { background: #374151; color: #e5e7eb; }
+                .view-btn { flex: 1; padding: 8px 6px; font-size: 0.85rem; background: #1f2937; border: none; color: #9ca3af; cursor: pointer; text-align: center; font-weight: 500; transition: all 0.2s; }
+                .view-btn.active { background: #3b82f6; color: white; box-shadow: 0 0 10px rgba(59, 130, 246, 0.3); }
+                .view-btn-group:has(.view-btn.active) { border-color: #3b82f6; }
+                .view-btn-group:has(.view-btn.active) .view-arrow-btn { border-color: rgba(59,130,246,0.4); color: #93c5fd; }
+                .view-btn-group:has(.view-btn.active) .view-arrow-btn:hover { background: #2563eb; color: white; }
 
                 /* Mini Calendar Styles */
                 .calendar-backdrop { position: fixed; inset: 0; z-index: 90; }
@@ -1330,11 +1241,24 @@ export default function Scheduler({ sidebarAction, onDataChange, onProjectCreate
                 .timeline-grid.compact-mode .event-title { font-size: 0.6rem; }
                 .timeline-grid.compact-mode .event-subtitle { font-size: 0.55rem; }
 
-                /* Schedule Book Tabs */
-                .schedule-book-tabs { display: flex; gap: 2px; background: #1f2937; padding: 0; border-bottom: 1px solid rgba(148, 163, 184, 0.2); overflow-x: auto; }
-                .schedule-book-tab { flex: 0 0 auto; padding: 12px 24px; background: #374151; color: #9ca3af; border: none; font-size: 0.9rem; font-weight: 500; cursor: pointer; transition: all 0.2s; white-space: nowrap; border-bottom: 3px solid transparent; }
-                .schedule-book-tab:hover { background: #4b5563; color: #e5e7eb; }
-                .schedule-book-tab.active { background: #1e293b; color: white; border-bottom-color: #3b82f6; box-shadow: inset 0 -3px 0 0 #3b82f6; }
+                /* Schedule Book Chips */
+                .schedule-book-chips { display: flex; align-items: center; gap: 6px; padding: 8px 16px; background: #111827; border-bottom: 1px solid rgba(148,163,184,0.1); flex-wrap: wrap; min-height: 44px; }
+                .sb-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 8px; background: #1e293b; border: 1px solid rgba(148,163,184,0.2); border-radius: 20px; font-size: 0.8rem; font-weight: 500; color: #e2e8f0; white-space: nowrap; }
+                .sb-chip-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+                .sb-chip-remove { background: none; border: none; color: #64748b; cursor: pointer; font-size: 1rem; line-height: 1; padding: 0 0 0 2px; display: flex; align-items: center; transition: color 0.15s; }
+                .sb-chip-remove:hover { color: #f87171; }
+                .sb-chip-all { background: #1e293b; border-color: #374151; color: #94a3b8; font-size: 0.8rem; font-style: italic; padding: 4px 12px; border-radius: 20px; }
+
+                /* Schedule Book Panel (left sidebar) */
+                .sb-all-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; cursor: pointer; border-radius: 6px; margin-bottom: 4px; transition: background 0.15s; }
+                .sb-all-row:hover { background: rgba(148,163,184,0.08); }
+                .sb-all-label { font-size: 0.82rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; }
+                .sb-all-label.sb-active { color: #e2e8f0; }
+                .sb-check { color: #3b82f6; font-size: 0.85rem; font-weight: 700; }
+                .sb-group-item { display: flex; align-items: center; gap: 8px; padding: 9px 12px; cursor: pointer; border-radius: 6px; transition: background 0.15s; color: #94a3b8; font-size: 0.85rem; }
+                .sb-group-item:hover { background: rgba(148,163,184,0.08); color: #e2e8f0; }
+                .sb-group-active { background: rgba(59,130,246,0.1); color: #e2e8f0; }
+                .sb-group-active .group-name { color: #e2e8f0; }
             `}</style>
         </div>
     );

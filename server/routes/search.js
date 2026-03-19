@@ -69,7 +69,7 @@ router.get('/', authenticateToken, async (req, res) => {
         });
     } catch (err) {
         console.error('Search error:', err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -167,7 +167,7 @@ router.get('/full', authenticateToken, async (req, res) => {
         });
     } catch (err) {
         console.error('Full search error:', err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -639,7 +639,7 @@ router.get('/advanced', authenticateToken, async (req, res) => {
         });
     } catch (err) {
         console.error('Advanced search error:', err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -694,7 +694,7 @@ router.get('/suggestions', authenticateToken, async (req, res) => {
         });
     } catch (err) {
         console.error('Suggestions error:', err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 

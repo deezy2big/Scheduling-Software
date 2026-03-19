@@ -2,8 +2,9 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { hashPassword, comparePassword } = require('../utils/password');
-const { generateToken } = require('../middleware/auth');
+const { generateToken, requireAuth } = require('../middleware/auth');
 const { logActivity, ACTIONS } = require('../utils/logger');
+const { loginLimiter } = require('../middleware/rateLimiter');
 
 // POST /auth/register - Admin creates user accounts
 router.post('/register', async (req, res) => {
@@ -41,7 +42,7 @@ router.post('/register', async (req, res) => {
 });
 
 // POST /auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -102,25 +103,11 @@ router.post('/login', async (req, res) => {
 });
 
 // GET /auth/me - Get current user info
-router.get('/me', async (req, res) => {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const token = authHeader.substring(7);
-    const { verifyToken } = require('../middleware/auth');
-    const decoded = verifyToken(token);
-
-    if (!decoded) {
-        return res.status(401).json({ error: 'Invalid or expired token' });
-    }
-
+router.get('/me', requireAuth, async (req, res) => {
     try {
         const { rows } = await db.query(
             'SELECT id, email, username, full_name, role, created_at FROM users WHERE id = $1',
-            [decoded.id]
+            [req.user.id]
         );
 
         if (rows.length === 0) {

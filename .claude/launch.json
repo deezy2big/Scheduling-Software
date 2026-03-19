@@ -10,11 +10,10 @@
     },
     {
       "name": "Server (Express)",
-      "runtimeExecutable": "node",
-      "runtimeArgs": ["index.js"],
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
       "cwd": "server",
-      "port": 3001,
-      "autoPort": true
+      "port": 3001
     }
   ]
 }
